@@ -9,7 +9,10 @@ type Phase = {
   deliverables: string[];
 };
 
+type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
+
 type RFP = {
+  // 기존 RFP 필드
   target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
@@ -23,19 +26,29 @@ type RFP = {
     design_direction: string;
     deliverables: string[];
   };
-  /** 🔹 NEW */
+
+  /** 🔹 NEW: 더블다이아몬드 로드맵 */
   double_diamond?: {
     discover: Phase;
     define: Phase;
     develop: Phase;
     deliver: Phase;
   };
-  /** 🔹 NEW */
+
+  /** 🔹 NEW: 만나야 할 전문가 리스트 */
   experts_to_meet?: { role: string; why: string }[];
+
+  /** 🔹 NEW: 전문가 4인 관점 리뷰 */
+  expert_reviews?: {
+    pm: ExpertPack;
+    designer: ExpertPack;
+    engineer: ExpertPack;
+    marketer: ExpertPack;
+  };
 };
 
 /** ---------- 프레젠테이션 컴포넌트 ---------- */
-function PhaseCard({ title, phase }: { title: string; phase: Phase | undefined }) {
+function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
   if (!phase) return null;
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
@@ -65,6 +78,67 @@ function PhaseCard({ title, phase }: { title: string; phase: Phase | undefined }
   );
 }
 
+function ExpertTab({ pack }: { pack?: ExpertPack }) {
+  if (!pack) return null;
+  return (
+    <div className="grid md:grid-cols-3 gap-3 text-sm">
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h4 className="font-semibold mb-2">⚠️ Risks</h4>
+        <ul className="list-disc list-inside text-gray-700">
+          {pack.risks?.map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      </div>
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h4 className="font-semibold mb-2">📌 Asks</h4>
+        <ul className="list-disc list-inside text-gray-700">
+          {pack.asks?.map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      </div>
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h4 className="font-semibold mb-2">✅ Checklist</h4>
+        <ul className="list-disc list-inside text-gray-700">
+          {pack.checklist?.map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function ExpertTabs({ data }: { data?: RFP["expert_reviews"] }) {
+  const [tab, setTab] = useState<"pm" | "designer" | "engineer" | "marketer">("pm");
+
+  const Btn = ({ k, label }: { k: typeof tab; label: string }) => (
+    <button
+      onClick={() => setTab(k)}
+      className={
+        "px-3 py-1 rounded-full text-sm border mr-2 " +
+        (tab === k ? "bg-black text-white" : "bg-white")
+      }
+    >
+      {label}
+    </button>
+  );
+
+  if (!data) return <p className="text-sm text-gray-500">리뷰 정보가 없습니다.</p>;
+
+  return (
+    <div className="space-y-4">
+      <div className="mb-2">
+        <Btn k="pm" label="PM/기획" />
+        <Btn k="designer" label="디자이너" />
+        <Btn k="engineer" label="엔지니어" />
+        <Btn k="marketer" label="마케터" />
+      </div>
+
+      {tab === "pm" && <ExpertTab pack={data.pm} />}
+      {tab === "designer" && <ExpertTab pack={data.designer} />}
+      {tab === "engineer" && <ExpertTab pack={data.engineer} />}
+      {tab === "marketer" && <ExpertTab pack={data.marketer} />}
+    </div>
+  );
+}
+
+/** ---------- 페이지 ---------- */
 export default function Home() {
   const [idea, setIdea] = useState("");
   const [rfp, setRfp] = useState<RFP | null>(null);
@@ -109,9 +183,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-3xl font-semibold">
-          Aidee MVP · 아이디어를 구조화된 비주얼 RFP로
-        </h1>
+        <h1 className="text-3xl font-semibold">Aidee MVP · 아이디어를 구조화된 비주얼 RFP로</h1>
 
         <p className="text-sm text-gray-600">
           제품 아이디어를 입력하면, 타겟/문제 정의부터 비주얼 RFP 초안까지 자동으로 구조화해 줍니다.
@@ -195,7 +267,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* 🔹 6. Double Diamond 로드맵 */}
+            {/* 6. Double Diamond 로드맵 */}
             <section className="md:col-span-2 space-y-3">
               <h2 className="font-semibold">⑥ Double Diamond 로드맵</h2>
               <div className="grid md:grid-cols-4 gap-3">
@@ -206,7 +278,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* 🔹 7. 누구를 만나야 할까 (전문가 가이드) */}
+            {/* 7. 누구를 만나야 할까 (전문가 가이드) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
               <h2 className="font-semibold mb-2">⑦ 누구를 만나야 할까</h2>
               <ul className="flex flex-wrap gap-2">
@@ -217,6 +289,12 @@ export default function Home() {
                   </li>
                 )) || <li className="text-sm text-gray-500">추천 전문가 정보가 없습니다.</li>}
               </ul>
+            </section>
+
+            {/* 8. 전문가 4인 관점 리뷰 (탭) */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold mb-3">⑧ 전문가 관점 리뷰</h2>
+              <ExpertTabs data={rfp.expert_reviews} />
             </section>
           </div>
         )}
