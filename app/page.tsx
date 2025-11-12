@@ -2,17 +2,18 @@
 
 import { useState } from "react";
 
+/** ---------- 데이터 타입 ---------- */
+type Phase = {
+  goals: string[];
+  tasks: { title: string; owner: string; eta_days: number }[];
+  deliverables: string[];
+};
+
 type RFP = {
-  target_and_problem: {
-    summary: string;
-    details: string;
-  };
+  target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
-  concept_and_references: {
-    concept_summary: string;
-    reference_keywords: string[];
-  };
+  concept_and_references: { concept_summary: string; reference_keywords: string[] };
   visual_rfp: {
     project_title: string;
     background: string;
@@ -22,7 +23,47 @@ type RFP = {
     design_direction: string;
     deliverables: string[];
   };
+  /** 🔹 NEW */
+  double_diamond?: {
+    discover: Phase;
+    define: Phase;
+    develop: Phase;
+    deliver: Phase;
+  };
+  /** 🔹 NEW */
+  experts_to_meet?: { role: string; why: string }[];
 };
+
+/** ---------- 프레젠테이션 컴포넌트 ---------- */
+function PhaseCard({ title, phase }: { title: string; phase: Phase | undefined }) {
+  if (!phase) return null;
+  return (
+    <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
+      <h3 className="font-semibold">{title}</h3>
+      <div className="text-sm">
+        <p className="mb-1"><strong>🎯 Goals</strong></p>
+        <ul className="list-disc list-inside text-gray-700">
+          {phase.goals?.map((g, i) => <li key={i}>{g}</li>)}
+        </ul>
+      </div>
+      <div className="text-sm">
+        <p className="mb-1"><strong>🛠️ Tasks</strong></p>
+        <ul className="space-y-1 text-gray-700">
+          {phase.tasks?.map((t, i) => (
+            <li key={i} className="border rounded-lg px-2 py-1">
+              <span className="font-medium">{t.title}</span>{" "}
+              <span className="text-xs text-gray-500">({t.owner}, {t.eta_days}일)</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="text-sm">
+        <p className="mb-1"><strong>🧾 Deliverables</strong></p>
+        <p className="text-gray-700">{phase.deliverables?.join(", ")}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const [idea, setIdea] = useState("");
@@ -30,7 +71,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-    const handleGenerate = async () => {
+  const handleGenerate = async () => {
     setLoading(true);
     setError("");
     setRfp(null);
@@ -48,15 +89,11 @@ export default function Home() {
       try {
         data = text ? JSON.parse(text) : null;
       } catch (e) {
-        // 서버가 JSON이 아닌 에러 페이지를 반환한 경우
         throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 200));
       }
 
       if (!res.ok) {
-        // 서버에서 보낸 에러 메시지 보여주기
-        const msg =
-          (data && (data.error || data.detail)) ||
-          `요청 실패 (status ${res.status})`;
+        const msg = (data && (data.error || data.detail)) || `요청 실패 (status ${res.status})`;
         setError(msg);
       } else {
         setRfp(data as RFP);
@@ -68,7 +105,6 @@ export default function Home() {
       setLoading(false);
     }
   };
-
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
@@ -97,11 +133,7 @@ export default function Home() {
           {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
         </button>
 
-        {error && (
-          <div className="text-red-500 text-sm">
-            {error}
-          </div>
-        )}
+        {error && <div className="text-red-500 text-sm">{error}</div>}
 
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
@@ -141,17 +173,10 @@ export default function Home() {
             {/* 4. 컨셉 & 레퍼런스 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
-              <p className="text-sm mb-2">
-                {rfp.concept_and_references.concept_summary}
-              </p>
+              <p className="text-sm mb-2">{rfp.concept_and_references.concept_summary}</p>
               <div className="flex flex-wrap gap-2 text-xs">
                 {rfp.concept_and_references.reference_keywords.map((k, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-1 rounded-full border"
-                  >
-                    {k}
-                  </span>
+                  <span key={i} className="px-2 py-1 rounded-full border">{k}</span>
                 ))}
               </div>
             </section>
@@ -168,6 +193,30 @@ export default function Home() {
                 <p><strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}</p>
                 <p><strong>납품물:</strong> {rfp.visual_rfp.deliverables.join(", ")}</p>
               </div>
+            </section>
+
+            {/* 🔹 6. Double Diamond 로드맵 */}
+            <section className="md:col-span-2 space-y-3">
+              <h2 className="font-semibold">⑥ Double Diamond 로드맵</h2>
+              <div className="grid md:grid-cols-4 gap-3">
+                <PhaseCard title="DISCOVER" phase={rfp.double_diamond?.discover} />
+                <PhaseCard title="DEFINE"   phase={rfp.double_diamond?.define} />
+                <PhaseCard title="DEVELOP"  phase={rfp.double_diamond?.develop} />
+                <PhaseCard title="DELIVER"  phase={rfp.double_diamond?.deliver} />
+              </div>
+            </section>
+
+            {/* 🔹 7. 누구를 만나야 할까 (전문가 가이드) */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold mb-2">⑦ 누구를 만나야 할까</h2>
+              <ul className="flex flex-wrap gap-2">
+                {rfp.experts_to_meet?.map((e, i) => (
+                  <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
+                    <span className="font-medium">{e.role}</span>{" "}
+                    <span className="text-gray-600">— {e.why}</span>
+                  </li>
+                )) || <li className="text-sm text-gray-500">추천 전문가 정보가 없습니다.</li>}
+              </ul>
             </section>
           </div>
         )}

@@ -47,18 +47,58 @@ export async function POST(req: Request) {
     "core_requirements": ["핵심 요구사항 3~7개"],
     "design_direction": "형태, 재질, 톤앤매너 등",
     "deliverables": ["필요 산출물 리스트"]
-  }
+  },
+  "double_diamond": {                        // 🔹 NEW
+    "discover": {
+      "goals": ["목표/맥락 파악"],
+      "tasks": [
+        {"title": "현장/데스크 리서치", "owner": "PM/리서처", "eta_days": 3}
+      ],
+      "deliverables": ["인사이트 메모"]
+    },
+    "define": {
+      "goals": ["요구사항·성능·원가 가드레일 확정"],
+      "tasks": [
+        {"title": "PRD/요구사항 매트릭스", "owner": "PM", "eta_days": 2}
+      ],
+      "deliverables": ["PRD v1"]
+    },
+    "develop": {
+      "goals": ["설계·시작품·인증 준비"],
+      "tasks": [
+        {"title": "구조설계/BOM v1", "owner": "엔지니어", "eta_days": 7},
+        {"title": "3D/CMF 목업", "owner": "디자이너", "eta_days": 5}
+      ],
+      "deliverables": ["3D STEP", "BOM v1", "목업 사진"]
+    },
+    "deliver": {
+      "goals": ["양산·런칭·판매"],
+      "tasks": [
+        {"title": "금형/양산업체 RFQ", "owner": "PM/구매", "eta_days": 5},
+        {"title": "패키지/라벨/매뉴얼", "owner": "디자이너/MD", "eta_days": 4},
+        {"title": "런칭 플랜", "owner": "마케터", "eta_days": 4}
+      ],
+      "deliverables": ["PO/생산일정", "패키지 파일", "런칭 캘린더"]
+    }
+  },
+  "experts_to_meet": [                        // 🔹 NEW
+    {"role": "제품 디자이너", "why": "형태/사용성·CMF 결정"},
+    {"role": "엔지니어(구조/전자)", "why": "부품 선정·BOM·안전성"},
+    {"role": "양산업체/금형사", "why": "DFM·원가·납기"},
+    {"role": "마케터/MD", "why": "포지셔닝/채널/가격 전략"},
+    {"role": "인증 대행", "why": "필요 인증 경로·리스크 안내"}
+  ]
 }
         `.trim();
 
         const completion = await client.chat.completions.create({
-          model: "gpt-4o-mini", // 나중에 계정에 맞는 모델로 조정
+          model: "gpt-4o-mini",
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: `제품 아이디어: "${idea}"에 대해 위 JSON 형식을 따라 작성해 주세요.`,
+              content: \`제품 아이디어: "\${idea}"에 대해 위 JSON 형식을 따라 작성해 주세요.\`,
             },
           ],
         });
@@ -88,84 +128,77 @@ export async function POST(req: Request) {
           "퍼포먼스 러너와 라이프스타일 러너 모두에게 심리적·실질적 안전감을 제공할 수 있다."
       },
       key_features: [
-        {
-          name: "러닝 최적화 공기 정화 모듈",
-          description:
-            "미세먼지 및 유해가스를 필터링하는 소형 모듈을 턱선/가슴/어깨 라인 등에 배치하여, 운동 중 호흡을 방해하지 않는 수준으로 설계."
-        },
-        {
-          name: "착용감 중심의 웨어러블 폼팩터",
-          description:
-            "러닝 시 흔들림이 적고, 무게 중심이 안정적인 구조(넥밴드, 체스트 스트랩, 캡/바이저 일체형 등)를 제안."
-        },
-        {
-          name: "실시간 공기질 피드백",
-          description:
-            "LED 인디케이터 또는 앱 연동을 통해 현재 공기질 상태와 필터 교체 시점 안내."
-        },
-        {
-          name: "생활 방수 및 내구성",
-          description:
-            "땀, 비, 야간 러닝 환경을 견딜 수 있는 생활 방수 및 러닝용 소재 사용."
-        }
+        { name: "러닝 최적화 공기 정화 모듈", description: "…" },
+        { name: "착용감 중심의 웨어러블 폼팩터", description: "…" },
+        { name: "실시간 공기질 피드백", description: "…" },
+        { name: "생활 방수 및 내구성", description: "…" }
       ],
       differentiation: [
-        {
-          point: "러닝 특화",
-          strategy:
-            "일반 마스크/공기청정기와 달리 '달리는 상황'의 호흡 패턴, 무게, 움직임을 기준으로 한 전문 러닝 기어 포지셔닝."
-        },
-        {
-          point: "스타일과 퍼포먼스의 결합",
-          strategy:
-            "스포츠 브랜드와 협업 가능한 디자인 언어(러닝 웨어와 자연스럽게 어울리는 컬러/라인) 제안."
-        },
-        {
-          point: "심리적 안전감",
-          strategy:
-            "데이터 기반 공기질 피드백으로 '보이지 않는 위험'을 시각화하고, 사용자에게 통제감을 제공."
-        }
+        { point: "러닝 특화", strategy: "…" },
+        { point: "스타일과 퍼포먼스의 결합", strategy: "…" },
+        { point: "심리적 안전감", strategy: "…" }
       ],
       concept_and_references: {
-        concept_summary:
-          "도시 러너를 위한 '개인용 클린에어 버블' 컨셉. 러닝 동작을 방해하지 않는 미니멀한 디바이스로, " +
-          "퍼포먼스와 라이프스타일 사이에 위치하는 새로운 카테고리 제안.",
+        concept_summary: "도시 러너를 위한 '개인용 클린에어 버블' 컨셉…",
         reference_keywords: [
-          "running wearable device",
-          "neckband air purifier",
-          "minimal sport tech",
-          "urban night runner",
-          "LED indicator sports gear"
+          "running wearable device","neckband air purifier","minimal sport tech","urban night runner","LED indicator sports gear"
         ]
       },
       visual_rfp: {
-        project_title:
-          "야외 러너를 위한 미니 공기청정 웨어러블 디바이스 디자인",
-        background:
-          "도시 환경에서 러닝 인구가 증가함에 따라, 공기 오염과 호흡 건강에 대한 우려가 커지고 있다. " +
-          "기존 마스크형 제품들은 착용감, 호흡, 스타일 측면의 불편으로 러닝 상황에서의 지속 사용이 어렵다.",
-        objective:
-          "러닝 중 착용 부담을 최소화하면서도 실질적인 공기 정화와 심리적 안심 효과를 제공하는 웨어러블 디바이스 컨셉을 도출한다.",
-        target_users:
-          "도시권 야외 러닝을 즐기는 20-40대 러너 (출퇴근 러너, 마라톤 준비생, 러닝 크루 등)",
+        project_title: "야외 러너를 위한 미니 공기청정 웨어러블 디바이스 디자인",
+        background: "…",
+        objective: "…",
+        target_users: "…",
         core_requirements: [
-          "러닝 동작을 방해하지 않는 착용 구조 및 무게",
-          "기본적인 미세먼지/오염물질 필터링 성능",
-          "야간 러닝에서도 어울리는 심플한 형태와 조명 요소",
-          "교체 가능한 필터 및 충전 구조",
-          "기존 러닝 웨어/액세서리와 조합 가능한 디자인"
+          "러닝 동작 방해 X","기본 필터링 성능","야간 시인성 요소","교체 가능한 필터/충전","러닝 웨어와 조합 가능"
         ],
-        design_direction:
-          "슬림하고 유선형의 실루엣, 블랙/딥그레이 기반에 포인트 컬러를 일부 적용. " +
-          "러닝 웨어와 자연스럽게 통합되는 형태(넥밴드, 캡, 스트랩, 체형 밀착 구조 등)를 탐색.",
-        deliverables: [
-          "제품 컨셉 보드",
-          "3D 제품 렌더링(착용 시나리오 포함)",
-          "기본 치수 및 구조 다이어그램",
-          "UI/LED 인디케이터 동작 플로우",
-          "간단한 브랜드/네이밍 제안"
-        ]
-      }
+        design_direction: "…",
+        deliverables: ["컨셉 보드","3D 렌더","구조 다이어그램","UI/LED 플로우","네이밍 제안"]
+      },
+      // 🔹 NEW: 더블다이아몬드 & 전문가 안내 (MOCK)
+      double_diamond: {
+        discover: {
+          goals: ["문제 맥락 파악", "타겟 세분화"],
+          tasks: [
+            { title: "러닝 크루 인터뷰 5명", owner: "PM/리서처", eta_days: 4 },
+            { title: "경쟁/대체재 스캔", owner: "PM/디자이너", eta_days: 3 }
+          ],
+          deliverables: ["인사이트 메모", "경쟁 포지션 맵"]
+        },
+        define: {
+          goals: ["제품 요구사항 고정", "성능/원가 가드레일"],
+          tasks: [
+            { title: "PRD/요구사항 매트릭스", owner: "PM", eta_days: 2 },
+            { title: "성능 지표 합의(정화량/무게/소음)", owner: "엔지니어/디자이너", eta_days: 2 }
+          ],
+          deliverables: ["PRD v1", "요구사항 매트릭스"]
+        },
+        develop: {
+          goals: ["설계/시작품", "인증·양산 준비"],
+          tasks: [
+            { title: "구조설계·부품 선정", owner: "엔지니어", eta_days: 10 },
+            { title: "3D/CMF 목업", owner: "디자이너", eta_days: 7 },
+            { title: "안전/전파 인증 사전검토", owner: "PM/엔지니어", eta_days: 3 }
+          ],
+          deliverables: ["3D STEP", "BOM v1", "목업 사진", "인증 체크리스트"]
+        },
+        deliver: {
+          goals: ["양산·런칭·판매"],
+          tasks: [
+            { title: "금형/양산업체 RFQ & 발주", owner: "PM/구매", eta_days: 7 },
+            { title: "패키지/라벨/매뉴얼", owner: "디자이너/MD", eta_days: 5 },
+            { title: "런칭 플랜(채널/가격/프로모션)", owner: "마케터", eta_days: 5 }
+          ],
+          deliverables: ["PO·생산일정", "패키지 파일", "런칭 캘린더", "커머스 세팅"]
+        }
+      },
+      experts_to_meet: [
+        { role: "제품 디자이너",   why: "형태/사용성·CMF 결정" },
+        { role: "엔지니어(구조/전자)", why: "부품·BOM·안전성" },
+        { role: "양산업체/금형사",  why: "DFM/원가·납기" },
+        { role: "마케터/MD",      why: "채널 전략/가격/콘텐츠" },
+        { role: "인증 대행",      why: "필요 인증 경로 안내" }
+      ]
     };
 
     return new Response(JSON.stringify(mock), {
