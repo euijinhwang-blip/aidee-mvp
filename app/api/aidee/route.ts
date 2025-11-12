@@ -94,13 +94,14 @@ export async function POST(req: Request) {
         const completion = await client.chat.completions.create({
           model: "gpt-4o-mini",
           response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: \`제품 아이디어: "\${idea}"에 대해 위 JSON 형식을 따라 작성해 주세요.\`,
-            },
-          ],
+       messages: [
+  { role: "system", content: systemPrompt },
+  {
+    role: "user",
+    content: '제품 아이디어: "' + idea + '"에 대해 위 JSON 형식을 따라 작성해 주세요.',
+  },
+]
+,
         });
 
         const content = completion.choices[0].message.content;
