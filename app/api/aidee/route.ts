@@ -1,485 +1,353 @@
-// app/api/aidee/route.ts
-import OpenAI from "openai";
+"use client";
 
-/** ─────────────────────────────────────────────────────────
- *  OpenAI 클라이언트 (키 없으면 null → MOCK 사용)
- *  ───────────────────────────────────────────────────────── */
-const hasApiKey = !!process.env.OPENAI_API_KEY;
-const client = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+import { useState } from "react";
 
-/** ─────────────────────────────────────────────────────────
- *  스키마 정의 (모델이 반드시 이 구조로 반환하도록 강제)
- *  ───────────────────────────────────────────────────────── */
-function phaseSchema() {
-  return {
-    type: "object",
-    properties: {
-      purpose: { type: "string" }, // 단계 설명(1줄)
-      goals: { type: "array", items: { type: "string" } },
-      tasks: {
-        // eta_days 제거, (title, owner)만 허용
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            title: { type: "string" },
-            owner: { type: "string" }
-          },
-          required: ["title", "owner"]
-        }
-      },
-      deliverables: { type: "array", items: { type: "string" } }
-    },
-    required: ["purpose", "goals", "tasks", "deliverables"]
-  };
-}
+/** ---------- 타입 ---------- */
+type Phase = {
+  goals?: string[];
+  tasks?: { title: string; owner: string }[]; // eta_days 제거
+  deliverables?: string[];
+};
 
-function expertPackSchema() {
-  return {
-    type: "object",
-    properties: {
-      risks: { type: "array", items: { type: "string" } },
-      asks: { type: "array", items: { type: "string" } },
-      checklist: { type: "array", items: { type: "string" } }
-    },
-    required: ["risks", "asks", "checklist"]
-  };
-}
+type ExpertPack = { risks?: string[]; asks?: string[]; checklist?: string[] };
 
-const AIDEE_RFP_SCHEMA = {
-  type: "object",
-  properties: {
-    target_and_problem: {
-      type: "object",
-      properties: {
-        summary: { type: "string" },
-        details: { type: "string" }
-      },
-      required: ["summary", "details"]
-    },
-    key_features: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          description: { type: "string" }
-        },
-        required: ["name", "description"]
-      }
-    },
-    differentiation: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          point: { type: "string" },
-          strategy: { type: "string" }
-        },
-        required: ["point", "strategy"]
-      }
-    },
-    concept_and_references: {
-      type: "object",
-      properties: {
-        concept_summary: { type: "string" },
-        reference_keywords: { type: "array", items: { type: "string" } }
-      },
-      required: ["concept_summary", "reference_keywords"]
-    },
-
-    // ✅ 프로세스 메타(예산/기간/비율/가정)
-    process_meta: {
-      type: "object",
-      properties: {
-        total_budget: { type: "string" },
-        total_timeline: { type: "string" },
-        phase_ratios: {
-          type: "object",
-          properties: {
-            discover: { type: "string" },
-            define: { type: "string" },
-            develop: { type: "string" },
-            deliver: { type: "string" }
-          },
-          required: ["discover", "define", "develop", "deliver"]
-        },
-        assumptions: { type: "array", items: { type: "string" } }
-      },
-      required: ["total_budget", "total_timeline", "phase_ratios"]
-    },
-
-    // ✅ 디자인 및 사업화 프로세스(안)
-    double_diamond: {
-      type: "object",
-      properties: {
-        discover: phaseSchema(),
-        define: phaseSchema(),
-        develop: phaseSchema(),
-        deliver: phaseSchema()
-      },
-      required: ["discover", "define", "develop", "deliver"]
-    },
-
-    // ✅ 누구를 만나야 할까
-    experts_to_meet: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { role: { type: "string" }, why: { type: "string" } },
-        required: ["role", "why"]
-      }
-    },
-
-    // ✅ 전문가 관점 리뷰
-    expert_reviews: {
-      type: "object",
-      properties: {
-        pm: expertPackSchema(),
-        designer: expertPackSchema(),
-        engineer: expertPackSchema(),
-        marketer: expertPackSchema()
-      },
-      required: ["pm", "designer", "engineer", "marketer"]
-    },
-
-    // ✅ 항상 마지막: 비주얼 RFP(요약 카드)
-    visual_rfp: {
-      type: "object",
-      properties: {
-        project_title: { type: "string" },
-        background: { type: "string" },
-        objective: { type: "string" },
-        target_users: { type: "string" },
-        core_requirements: { type: "array", items: { type: "string" } },
-        design_direction: { type: "string" },
-        deliverables: { type: "array", items: { type: "string" } }
-      },
-      required: [
-        "project_title",
-        "background",
-        "objective",
-        "target_users",
-        "core_requirements",
-        "design_direction",
-        "deliverables"
-      ]
-    }
-  },
-  required: [
-    "target_and_problem",
-    "key_features",
-    "differentiation",
-    "concept_and_references",
-    "process_meta",
-    "double_diamond",
-    "experts_to_meet",
-    "expert_reviews",
-    "visual_rfp"
-  ]
-} as const;
-
-/** ─────────────────────────────────────────────────────────
- *  시스템 프롬프트
- *  ───────────────────────────────────────────────────────── */
-const systemPrompt = `
-당신은 제품 디자인·사업화 컨설턴트입니다.
-반드시 제공된 "JSON 스키마"를 엄격히 준수해서만 응답하세요.
-설명문·마크다운·코드블록 없이 JSON만 반환하세요.
-- "디자인 및 사업화 프로세스(안)"은 네 단계(Discover/Define/Develop/Deliver)로 구성
-- 각 단계에는 purpose(1줄 설명) 포함
-- tasks에는 "eta_days"를 절대 넣지 말고 {title, owner}만 사용
-- "visual_rfp"는 전체 요약 카드이므로 항상 포함하고 마지막에 위치
-`.trim();
-
-/** ─────────────────────────────────────────────────────────
- *  후처리 보정: 누락/빈 배열 채우기 (초보자 친화 언어)
- *  ───────────────────────────────────────────────────────── */
-function fillDefaults(d: any, idea: string) {
-  const safeArr = (x: any) => (Array.isArray(x) ? x : []);
-  const ensure = (v: any, fb: any) => (v === undefined || v === null ? fb : v);
-
-  d.process_meta = ensure(d.process_meta, {
-    total_budget: "예: 4,000만~8,000만원",
-    total_timeline: "예: 6~9개월",
-    phase_ratios: { discover: "15%", define: "20%", develop: "45%", deliver: "20%" },
-    assumptions: [
-      "국내 소량 양산(금형 포함)을 기준으로 산정",
-      "외주 디자인·설계·브랜딩 포함",
-      "인증 필요 여부에 따라 변동 가능"
-    ]
-  });
-
-  const phaseDefault = (purpose: string) => ({
-    purpose,
-    goals: [] as string[],
-    tasks: [] as { title: string; owner: string }[],
-    deliverables: [] as string[]
-  });
-
-  d.double_diamond ||= {};
-  d.double_diamond.discover ||= phaseDefault("문제를 넓게 탐색하고 사용자·상황을 이해합니다.");
-  d.double_diamond.define ||= phaseDefault("배운 내용을 압축해 요구사항과 가드레일을 확정합니다.");
-  d.double_diamond.develop ||= phaseDefault("해결안을 만들고 빠르게 만들어 보며 검증합니다.");
-  d.double_diamond.deliver ||= phaseDefault("양산·출시·판매까지 실행하고 성과를 모니터링합니다.");
-
-  ["discover", "define", "develop", "deliver"].forEach((p) => {
-    const phase = d.double_diamond[p];
-    phase.tasks = safeArr(phase.tasks).map((t: any) => ({
-      title: t?.title || "작업 항목",
-      owner: t?.owner || "담당자"
-    }));
-    phase.goals = safeArr(phase.goals);
-    phase.deliverables = safeArr(phase.deliverables);
-  });
-
-  d.experts_to_meet = safeArr(d.experts_to_meet).length
-    ? d.experts_to_meet
-    : [
-        { role: "제품 디자이너", why: "모양·사용 편의·재질(색/표면)을 함께 결정합니다." },
-        { role: "엔지니어(구조/전자)", why: "부품 선정과 내부 구조를 안전하게 설계합니다." },
-        { role: "양산업체/금형사", why: "만들 수 있는 방법과 비용을 현실적으로 맞춥니다." },
-        { role: "마케터/MD", why: "누가 왜 사는지, 가격·채널·메시지를 정리합니다." },
-        { role: "인증 대행", why: "필요한 인증 절차와 위험을 미리 확인합니다." }
-      ];
-
-  const easyPack = (pack?: any) => ({
-    risks:
-      safeArr(pack?.risks).length > 0
-        ? pack.risks
-        : [
-            "수요 검증 부족 시 판매에 어려움이 생길 수 있습니다.",
-            "부품 납기/가격 변동은 일정과 원가를 흔듭니다."
-          ],
-    asks:
-      safeArr(pack?.asks).length > 0
-        ? pack.asks
-        : [
-            "초기 버전 범위를 작게 정해 빠르게 검증하세요.",
-            "핵심 위험 목록을 작성해 주간 단위로 점검하세요."
-          ],
-    checklist:
-      safeArr(pack?.checklist).length > 0
-        ? pack.checklist
-        : ["PRD(요구사항 문서) 1.0", "리스크 레지스터(위험 목록)"]
-  });
-
-  d.expert_reviews = d.expert_reviews || {};
-  d.expert_reviews.pm = easyPack(d.expert_reviews.pm);
-  d.expert_reviews.designer = easyPack(d.expert_reviews.designer);
-  d.expert_reviews.engineer = easyPack(d.expert_reviews.engineer);
-  d.expert_reviews.marketer = easyPack(d.expert_reviews.marketer);
-
-  d.visual_rfp ||= {
-    project_title: idea.slice(0, 30),
-    background: "왜 이 제품이 필요한지 간단히 설명합니다.",
-    objective: "무엇을 달성하려는지 한 줄 목표",
-    target_users: "누가 주 고객인지",
-    core_requirements: ["핵심 요구 1", "핵심 요구 2"],
-    design_direction: "형태/재질/톤앤매너 요약",
-    deliverables: ["컨셉 보드", "3D 렌더", "생산 문서"]
+type RFP = {
+  target_and_problem?: { summary?: string; details?: string };
+  key_features?: { name?: string; description?: string }[];
+  differentiation?: { point?: string; strategy?: string }[];
+  concept_and_references?: { concept_summary?: string; reference_keywords?: string[] };
+  visual_rfp?: {
+    project_title?: string;
+    background?: string;
+    objective?: string;
+    target_users?: string;
+    core_requirements?: string[];
+    design_direction?: string;
+    deliverables?: string[];
   };
 
-  return d;
-}
-
-/** ─────────────────────────────────────────────────────────
- *  MOCK 데이터 (OpenAI 실패 또는 API KEY 미보유 시)
- *  ───────────────────────────────────────────────────────── */
-function mockData(idea: string) {
-  return {
-    target_and_problem: {
-      summary: "주요 타겟의 일상 문제를 안전하고 편리하게 해결",
-      details:
-        "사용자는 기존 제품에서 안전성·편의성·디자인 모두를 만족시키기 어렵다고 느낍니다. " +
-        "핵심 상황과 제약을 분석해 가장 중요한 사용 순간을 개선하는 것이 목표입니다."
-    },
-    key_features: [
-      { name: "안전한 소재/구조", description: "국제 안전 기준을 준수하고 내구성을 확보합니다." },
-      { name: "모듈형 기능", description: "핵심 기능을 중심으로 선택·확장 가능한 구성." },
-      { name: "직관적 사용성", description: "초보자도 설명서 없이 이해할 수 있는 인터랙션." }
-    ],
-    differentiation: [
-      { point: "사용 맥락 최적화", strategy: "실사용 영상 관찰을 통해 동작·그립·조작성 최적화." },
-      { point: "감성 품질", strategy: "만졌을 때의 온도/질감/무게감까지 설계(예: 다이슨의 촉감 완성도)." },
-      { point: "운영 용이성", strategy: "부품 표준화·AS 용이성·교체 비용 절감 구조." }
-    ],
-    concept_and_references: {
-      concept_summary:
-        "‘안심·편의·심미’를 모두 갖춘 실사용 중심 제품. 집·외부 어디서든 어울리는 미니멀 톤.",
-      reference_keywords: [
-        "minimal product design",
-        "safe materials",
-        "modular accessory",
-        "user test friendly",
-        "everyday usability"
-      ]
-    },
-
-    process_meta: {
-      total_budget: "예: 4,000만~8,000만원",
-      total_timeline: "예: 6~9개월",
-      phase_ratios: { discover: "15%", define: "20%", develop: "45%", deliver: "20%" },
-      assumptions: [
-        "국내 소량 양산(금형 포함) 기준",
-        "외주 디자인·설계·브랜딩 포함",
-        "인증 필요 시 비용/기간 추가"
-      ]
-    },
-
-    double_diamond: {
-      discover: {
-        purpose: "문제를 넓게 탐색하고 사용자·상황을 이해합니다.",
-        goals: ["핵심 페르소나 도출", "사용 시나리오 정리"],
-        tasks: [
-          { title: "현장/원격 인터뷰 5~8명", owner: "PM/리서처" },
-          { title: "경쟁·대체재 리뷰", owner: "PM/디자이너" }
-        ],
-        deliverables: ["인사이트 메모", "경쟁 포지션 맵"]
-      },
-      define: {
-        purpose: "배운 내용을 압축해 요구사항과 가드레일을 확정합니다.",
-        goals: ["성능/원가/제약 합의", "PRD 1.0"],
-        tasks: [
-          { title: "요구사항 매트릭스 작성", owner: "PM" },
-          { title: "성능 목표치 합의", owner: "엔지니어/디자이너" }
-        ],
-        deliverables: ["PRD v1", "요구사항 매트릭스"]
-      },
-      develop: {
-        purpose: "해결안을 만들고 빠르게 만들어 보며 검증합니다.",
-        goals: ["시작품 제작·검증", "인증/양산 준비"],
-        tasks: [
-          { title: "구조 설계·부품 선정", owner: "엔지니어" },
-          { title: "3D/CMF 목업", owner: "디자이너" },
-          { title: "예비 인증 문의", owner: "PM/엔지니어" }
-        ],
-        deliverables: ["3D STEP", "BOM v1", "목업 사진", "인증 체크리스트"]
-      },
-      deliver: {
-        purpose: "양산·출시·판매까지 실행하고 성과를 모니터링합니다.",
-        goals: ["금형/양산", "런칭·판매"],
-        tasks: [
-          { title: "양산업체 RFQ & 발주", owner: "PM/구매" },
-          { title: "패키지/라벨/매뉴얼", owner: "디자이너/MD" },
-          { title: "런칭 플랜(채널/가격/프로모션)", owner: "마케터" }
-        ],
-        deliverables: ["PO·생산일정", "패키지 파일", "런칭 캘린더", "커머스 세팅"]
-      }
-    },
-
-    experts_to_meet: [
-      { role: "제품 디자이너", why: "모양·사용 편의·재질(색/표면)을 함께 결정합니다." },
-      { role: "엔지니어(구조/전자)", why: "부품 선정과 내부 구조를 안전하게 설계합니다." },
-      { role: "양산업체/금형사", why: "만들 수 있는 방법과 비용을 현실적으로 맞춥니다." },
-      { role: "마케터/MD", why: "누가 왜 사는지, 가격·채널·메시지를 정리합니다." },
-      { role: "인증 대행", why: "필요한 인증 절차와 위험을 미리 확인합니다." }
-    ],
-
-    expert_reviews: {
-      pm: {
-        risks: ["수요 검증 부족", "부품 리드타임 변동"],
-        asks: ["MVP 범위 확정", "리스크 레지스터 운영"],
-        checklist: ["PRD v1", "위험 목록/담당자/대응 계획"]
-      },
-      designer: {
-        risks: ["착용/그립 불안정", "사용자 기대와 미스핏"],
-        asks: ["핵심 시나리오 프로토타입 테스트", "CMF 샘플 피드백"],
-        checklist: ["핵심 플로우 맵", "인체/안전 기준 반영"]
-      },
-      engineer: {
-        risks: ["열/소음/배터리", "부품 EOL(단종)"],
-        asks: ["예비 인증 문의", "BOM v1 작성/DFM 고려"],
-        checklist: ["DFM 점검표", "규격 매핑표"]
-      },
-      marketer: {
-        risks: ["차별성 커뮤니케이션 난이도", "가격 저항"],
-        asks: ["포지셔닝 A/B 테스트", "채널 실험(광고 소액)"],
-        checklist: ["런칭 메시지", "채널별 마진 구조"]
-      }
-    },
-
-    // 마지막: 비주얼 RFP(요약 카드)
-    visual_rfp: {
-      project_title: idea.slice(0, 30) || "프로젝트",
-      background: "왜 이 제품이 필요한지 배경을 설명합니다.",
-      objective: "디자인/사업 목표를 한 줄로 요약합니다.",
-      target_users: "핵심 타겟 정의",
-      core_requirements: ["핵심 요구 1", "핵심 요구 2", "핵심 요구 3"],
-      design_direction: "형태/재질/톤앤매너 요약",
-      deliverables: ["컨셉 보드", "3D 렌더", "생산 문서"]
-    }
+  /** 프로세스(더블다이아몬드 확장) */
+  double_diamond?: {
+    discover?: Phase;
+    define?: Phase;
+    develop?: Phase;
+    deliver?: Phase;
+    /** 추가(선택): 전체 예산/기간 가이드 */
+    overall_budget_time?: {
+      total_budget_krw?: string; // "약 3천만~5천만원"
+      total_time_weeks?: string;  // "약 10~16주"
+      ratio?: { discover?: string; define?: string; develop?: string; deliver?: string }; // "20%" 등
+      notes?: string;
+    };
+    purpose_notes?: {
+      discover?: string;
+      define?: string;
+      develop?: string;
+      deliver?: string;
+    };
   };
+
+  /** 만나야 할 전문가 */
+  experts_to_meet?: { role?: string; why?: string }[];
+
+  /** 전문가 관점 리뷰 */
+  expert_reviews?: {
+    pm?: ExpertPack;
+    designer?: ExpertPack;
+    engineer?: ExpertPack;
+    marketer?: ExpertPack;
+  };
+};
+
+/** ---------- 유틸 ---------- */
+const A = <T,>(x: T[] | undefined | null) => x ?? [];
+const S = (x: string | undefined | null) => x ?? "";
+
+/** ---------- 프레젠테이션 컴포넌트 ---------- */
+function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
+  if (!phase) return null;
+  return (
+    <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
+      <h3 className="font-semibold">{title}</h3>
+
+      <div className="text-sm">
+        <p className="mb-1"><strong>🎯 Goals</strong></p>
+        <ul className="list-disc list-inside text-gray-700">
+          {A(phase.goals).map((g, i) => <li key={i}>{g}</li>)}
+        </ul>
+      </div>
+
+      <div className="text-sm">
+        <p className="mb-1"><strong>🛠️ Tasks</strong></p>
+        <ul className="space-y-1 text-gray-700">
+          {A(phase.tasks).map((t, i) => (
+            <li key={i} className="border rounded-lg px-2 py-1">
+              <span className="font-medium">{t.title}</span>{" "}
+              <span className="text-xs text-gray-500">({t.owner})</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="text-sm">
+        <p className="mb-1"><strong>🧾 Deliverables</strong></p>
+        <p className="text-gray-700">{A(phase.deliverables).join(", ")}</p>
+      </div>
+    </div>
+  );
 }
 
-/** ─────────────────────────────────────────────────────────
- *  API Route
- *  ───────────────────────────────────────────────────────── */
-export async function POST(req: Request) {
-  try {
-    const { idea } = await req.json();
+function ExpertTab({ pack }: { pack?: ExpertPack }) {
+  if (!pack) return <p className="text-sm text-gray-500">리뷰 정보가 없습니다.</p>;
+  return (
+    <div className="grid md:grid-cols-3 gap-3 text-sm">
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h4 className="font-semibold mb-2">⚠️ Risks</h4>
+        <ul className="list-disc list-inside text-gray-700">
+          {A(pack.risks).map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      </div>
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h4 className="font-semibold mb-2">📌 Asks</h4>
+        <ul className="list-disc list-inside text-gray-700">
+          {A(pack.asks).map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      </div>
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h4 className="font-semibold mb-2">✅ Checklist</h4>
+        <ul className="list-disc list-inside text-gray-700">
+          {A(pack.checklist).map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      </div>
+    </div>
+  );
+}
 
-    if (!idea || typeof idea !== "string") {
-      return new Response(JSON.stringify({ error: "아이디어가 비어 있습니다." }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" }
+function ExpertTabs({ data }: { data?: RFP["expert_reviews"] }) {
+  const [tab, setTab] = useState<"pm" | "designer" | "engineer" | "marketer">("pm");
+
+  const Btn = ({ k, label }: { k: typeof tab; label: string }) => (
+    <button
+      onClick={() => setTab(k)}
+      className={
+        "px-3 py-1 rounded-full text-sm border mr-2 " +
+        (tab === k ? "bg-black text-white" : "bg-white")
+      }
+    >
+      {label}
+    </button>
+  );
+
+  if (!data) return <p className="text-sm text-gray-500">리뷰 정보가 없습니다.</p>;
+
+  return (
+    <div className="space-y-4">
+      <div className="mb-2">
+        <Btn k="pm" label="PM/기획" />
+        <Btn k="designer" label="디자이너" />
+        <Btn k="engineer" label="엔지니어" />
+        <Btn k="marketer" label="마케터" />
+      </div>
+
+      {tab === "pm" && <ExpertTab pack={data.pm} />}
+      {tab === "designer" && <ExpertTab pack={data.designer} />}
+      {tab === "engineer" && <ExpertTab pack={data.engineer} />}
+      {tab === "marketer" && <ExpertTab pack={data.marketer} />}
+    </div>
+  );
+}
+
+/** ---------- 페이지 ---------- */
+export default function Home() {
+  const [idea, setIdea] = useState("");
+  const [rfp, setRfp] = useState<RFP | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError("");
+    setRfp(null);
+
+    try {
+      const res = await fetch("/api/aidee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea }),
       });
-    }
 
-    // 1) OpenAI 경로 (키가 있고 쿼터가 남아있다면)
-    if (client) {
+      const text = await res.text();
+      let data: any = null;
+
       try {
-        const completion = await client.chat.completions.create({
-          model: "gpt-4o-mini",
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              name: "AideeRfp",
-              schema: AIDEE_RFP_SCHEMA,
-              strict: true
-            }
-          },
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content:
-                `제품 아이디어: "${idea}"에 대해 위 JSON 스키마를 엄격히 준수하여 반환하세요. ` +
-                `추가 텍스트 없이 JSON만 응답하세요.`
-            }
-          ]
-        });
-
-        const content = completion.choices[0].message.content;
-        if (!content) throw new Error("모델 응답이 비어 있습니다.");
-
-        let parsed = JSON.parse(content);
-        parsed = fillDefaults(parsed, idea);
-
-        return new Response(JSON.stringify(parsed), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      } catch (err) {
-        console.error("OpenAI 호출 실패 → MOCK 대체:", (err as any)?.message || err);
-        // 아래 MOCK으로 폴백
+        data = text ? JSON.parse(text) : null;
+      } catch (e) {
+        throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 200));
       }
-    }
 
-    // 2) MOCK 경로
-    const mock = mockData(idea);
-    return new Response(JSON.stringify(mock), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    });
-  } catch (err: any) {
-    console.error("최종 서버 오류:", err);
-    return new Response(
-      JSON.stringify({
-        error: "서버 에러가 발생했습니다.",
-        detail: err?.message || String(err)
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
+      if (!res.ok) {
+        const msg = (data && (data.error || data.detail)) || `요청 실패 (status ${res.status})`;
+        setError(msg);
+      } else {
+        setRfp(data as RFP);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || "네트워크 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const dd = rfp?.double_diamond;
+  const ddRatio = dd?.overall_budget_time?.ratio;
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-5xl mx-auto space-y-6">
+        <h1 className="text-3xl font-semibold">Aidee MVP · 아이디어를 구조화된 비주얼 RFP로</h1>
+
+        <p className="text-sm text-gray-600">
+          제품 아이디어를 입력하면, 타겟/문제 정의부터 전문가 리뷰, 프로세스 가이드까지 자동으로 구조화해 줍니다.
+        </p>
+
+        <textarea
+          className="w-full p-4 border rounded-lg bg-white"
+          rows={4}
+          placeholder='예: "야외 러너를 위한 미니 공기청정 웨어러블 디바이스"'
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+        />
+
+        <button
+          onClick={handleGenerate}
+          disabled={loading || !idea}
+          className="px-6 py-3 rounded-lg border bg-white disabled:opacity-50"
+        >
+          {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
+        </button>
+
+        {error && <div className="text-red-500 text-sm">{error}</div>}
+
+        {rfp && (
+          <div className="grid md:grid-cols-2 gap-4 mt-6">
+            {/* ① 타겟/문제 정의 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold mb-2">① 타겟 & 문제 정의</h2>
+              <p className="font-medium mb-1">{S(rfp.target_and_problem?.summary)}</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                {S(rfp.target_and_problem?.details)}
+              </p>
+            </section>
+
+            {/* ② 핵심 기능 제안 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold mb-2">② 핵심 기능 제안</h2>
+              <ul className="space-y-1 text-sm">
+                {A(rfp.key_features).map((f, i) => (
+                  <li key={i}>
+                    <strong>{S(f.name)}</strong> — {S(f.description)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            {/* ③ 차별화 포인트 & 전략 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold mb-2">③ 차별화 포인트 & 전략</h2>
+              <ul className="space-y-1 text-sm">
+                {A(rfp.differentiation).map((d, i) => (
+                  <li key={i}>
+                    <strong>{S(d.point)}</strong>: {S(d.strategy)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            {/* ④ 컨셉 & 레퍼런스 키워드 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
+              <p className="text-sm mb-2">{S(rfp.concept_and_references?.concept_summary)}</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {A(rfp.concept_and_references?.reference_keywords).map((k, i) => (
+                  <span key={i} className="px-2 py-1 rounded-full border">{k}</span>
+                ))}
+              </div>
+            </section>
+
+            {/* ⑤ 누구를 만나야 할까 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold mb-2">⑤ 누구를 만나야 할까</h2>
+              <ul className="flex flex-wrap gap-2">
+                {A(rfp.experts_to_meet).map((e, i) => (
+                  <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
+                    <span className="font-medium">{S(e.role)}</span>{" "}
+                    <span className="text-gray-600">— {S(e.why)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            {/* ⑥ 전문가 관점 리뷰 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold mb-3">⑥ 전문가 관점 리뷰</h2>
+              <ExpertTabs data={rfp.expert_reviews} />
+            </section>
+
+            {/* ⑦ 디자인 및 사업화 프로세스(안) */}
+            <section className="md:col-span-2 space-y-3">
+              <h2 className="font-semibold">⑦ 디자인 및 사업화 프로세스(안)</h2>
+
+              {/* 단계 목적 한 줄 설명 */}
+              {dd?.purpose_notes && (
+                <div className="text-sm text-gray-700 bg-white p-4 rounded-2xl shadow-sm">
+                  <p><strong>Discover:</strong> {S(dd.purpose_notes.discover)}</p>
+                  <p><strong>Define:</strong> {S(dd.purpose_notes.define)}</p>
+                  <p><strong>Develop:</strong> {S(dd.purpose_notes.develop)}</p>
+                  <p><strong>Deliver:</strong> {S(dd.purpose_notes.deliver)}</p>
+                </div>
+              )}
+
+              {/* 예산/기간 요약 */}
+              {dd?.overall_budget_time && (
+                <div className="text-sm text-gray-700 bg-white p-4 rounded-2xl shadow-sm">
+                  <p><strong>예상 총 예산:</strong> {S(dd.overall_budget_time.total_budget_krw)}</p>
+                  <p><strong>예상 총 기간:</strong> {S(dd.overall_budget_time.total_time_weeks)}</p>
+                  {ddRatio && (
+                    <p className="mt-1">
+                      <strong>단계별 비율:</strong>{" "}
+                      Discover {S(ddRatio.discover)} · Define {S(ddRatio.define)} ·
+                      Develop {S(ddRatio.develop)} · Deliver {S(ddRatio.deliver)}
+                    </p>
+                  )}
+                  {S(dd.overall_budget_time.notes) && <p className="mt-1">{dd.overall_budget_time?.notes}</p>}
+                </div>
+              )}
+
+              <div className="grid md:grid-cols-4 gap-3">
+                <PhaseCard title="DISCOVER" phase={dd?.discover} />
+                <PhaseCard title="DEFINE"   phase={dd?.define} />
+                <PhaseCard title="DEVELOP"  phase={dd?.develop} />
+                <PhaseCard title="DELIVER"  phase={dd?.deliver} />
+              </div>
+            </section>
+
+            {/* ⑧ 비주얼 RFP / 브리프 초안 — 항상 마지막 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold mb-2">⑧ 비주얼 RFP / 브리프 초안</h2>
+              <div className="text-sm space-y-1">
+                <p><strong>프로젝트명:</strong> {S(rfp.visual_rfp?.project_title)}</p>
+                <p><strong>배경:</strong> {S(rfp.visual_rfp?.background)}</p>
+                <p><strong>목표:</strong> {S(rfp.visual_rfp?.objective)}</p>
+                <p><strong>타겟 사용자:</strong> {S(rfp.visual_rfp?.target_users)}</p>
+                <p><strong>핵심 요구사항:</strong> {A(rfp.visual_rfp?.core_requirements).join(", ")}</p>
+                <p><strong>디자인 방향:</strong> {S(rfp.visual_rfp?.design_direction)}</p>
+                <p><strong>납품물:</strong> {A(rfp.visual_rfp?.deliverables).join(", ")}</p>
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </main>
+  );
 }
