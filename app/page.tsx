@@ -4,12 +4,23 @@ import { useState } from "react";
 
 /** ---------- 데이터 타입 ---------- */
 type Phase = {
+  /** 각 단계의 한 줄 목적(초보자 가이드) */
+  purpose: string;
   goals: string[];
-  tasks: { title: string; owner: string; eta_days: number }[];
+  /** 기간 제거: owner만 표기 */
+  tasks: { title: string; owner: string }[];
   deliverables: string[];
 };
 
 type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
+
+type ProcessMeta = {
+  estimated_budget_total_krw: string;        // 예: "80,000,000 ~ 200,000,000"
+  estimated_duration_weeks: string;          // 예: "16 ~ 36"
+  budget_split_percentages: { discover: number; define: number; develop: number; deliver: number };
+  duration_split_percentages: { discover: number; define: number; develop: number; deliver: number };
+  assumptions: string[];
+};
 
 type RFP = {
   // 기존 RFP 필드
@@ -17,23 +28,17 @@ type RFP = {
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
   concept_and_references: { concept_summary: string; reference_keywords: string[] };
-  visual_rfp: {
-    project_title: string;
-    background: string;
-    objective: string;
-    target_users: string;
-    core_requirements: string[];
-    design_direction: string;
-    deliverables: string[];
-  };
 
-  /** 🔹 NEW: 더블다이아몬드 로드맵 */
+  /** 🔹 NEW: 더블다이아몬드(=디자인·사업화 프로세스) */
   double_diamond?: {
     discover: Phase;
     define: Phase;
     develop: Phase;
     deliver: Phase;
   };
+
+  /** 🔹 NEW: 예산/기간 메타 정보 */
+  process_meta?: ProcessMeta;
 
   /** 🔹 NEW: 만나야 할 전문가 리스트 */
   experts_to_meet?: { role: string; why: string }[];
@@ -45,7 +50,21 @@ type RFP = {
     engineer: ExpertPack;
     marketer: ExpertPack;
   };
+
+  /** 🔹 마지막 요약 카드 */
+  visual_rfp: {
+    project_title: string;
+    background: string;
+    objective: string;
+    target_users: string;
+    core_requirements: string[];
+    design_direction: string;
+    deliverables: string[];
+  };
 };
+
+/** ---------- 유틸 ---------- */
+const pct = (n?: number) => (typeof n === "number" ? Math.round(n * 100) : undefined);
 
 /** ---------- 프레젠테이션 컴포넌트 ---------- */
 function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
@@ -53,23 +72,31 @@ function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
       <h3 className="font-semibold">{title}</h3>
+
+      {/* 한 줄 목적 */}
+      {phase.purpose && (
+        <p className="text-xs text-gray-600 border rounded-lg px-2 py-1">{phase.purpose}</p>
+      )}
+
       <div className="text-sm">
         <p className="mb-1"><strong>🎯 Goals</strong></p>
         <ul className="list-disc list-inside text-gray-700">
           {phase.goals?.map((g, i) => <li key={i}>{g}</li>)}
         </ul>
       </div>
+
       <div className="text-sm">
         <p className="mb-1"><strong>🛠️ Tasks</strong></p>
         <ul className="space-y-1 text-gray-700">
           {phase.tasks?.map((t, i) => (
             <li key={i} className="border rounded-lg px-2 py-1">
               <span className="font-medium">{t.title}</span>{" "}
-              <span className="text-xs text-gray-500">({t.owner}, {t.eta_days}일)</span>
+              <span className="text-xs text-gray-500">({t.owner})</span>
             </li>
           ))}
         </ul>
       </div>
+
       <div className="text-sm">
         <p className="mb-1"><strong>🧾 Deliverables</strong></p>
         <p className="text-gray-700">{phase.deliverables?.join(", ")}</p>
@@ -186,7 +213,7 @@ export default function Home() {
         <h1 className="text-3xl font-semibold">Aidee MVP · 아이디어를 구조화된 비주얼 RFP로</h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하면, 타겟/문제 정의부터 비주얼 RFP 초안까지 자동으로 구조화해 줍니다.
+          제품 아이디어를 입력하면, 타겟/문제 정의부터 전문가 리뷰, 디자인·사업화 로드맵까지 자동으로 구조화해 줍니다.
         </p>
 
         <textarea
@@ -253,34 +280,49 @@ export default function Home() {
               </div>
             </section>
 
-            {/* 5. 비주얼 RFP */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑤ 비주얼 RFP / 브리프 초안</h2>
-              <div className="text-sm space-y-1">
-                <p><strong>프로젝트명:</strong> {rfp.visual_rfp.project_title}</p>
-                <p><strong>배경:</strong> {rfp.visual_rfp.background}</p>
-                <p><strong>목표:</strong> {rfp.visual_rfp.objective}</p>
-                <p><strong>타겟 사용자:</strong> {rfp.visual_rfp.target_users}</p>
-                <p><strong>핵심 요구사항:</strong> {rfp.visual_rfp.core_requirements.join(", ")}</p>
-                <p><strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}</p>
-                <p><strong>납품물:</strong> {rfp.visual_rfp.deliverables.join(", ")}</p>
-              </div>
-            </section>
-
-            {/* 6. Double Diamond 로드맵 */}
+            {/* 5. 디자인 및 사업화 프로세스(안) */}
             <section className="md:col-span-2 space-y-3">
-              <h2 className="font-semibold">⑥ Double Diamond 로드맵</h2>
+              <h2 className="font-semibold">⑤ 디자인 및 사업화 프로세스(안)</h2>
               <div className="grid md:grid-cols-4 gap-3">
                 <PhaseCard title="DISCOVER" phase={rfp.double_diamond?.discover} />
                 <PhaseCard title="DEFINE"   phase={rfp.double_diamond?.define} />
                 <PhaseCard title="DEVELOP"  phase={rfp.double_diamond?.develop} />
                 <PhaseCard title="DELIVER"  phase={rfp.double_diamond?.deliver} />
               </div>
+
+              {/* 메타 정보 (예산/기간/비율) */}
+              {rfp.process_meta && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm">
+                  <h3 className="font-semibold mb-2">예상 예산·기간(가이드)</h3>
+                  <p className="text-sm text-gray-700">
+                    총 예산: {rfp.process_meta.estimated_budget_total_krw} / 예상 기간: {rfp.process_meta.estimated_duration_weeks}주
+                  </p>
+                  <div className="text-xs text-gray-600 mt-2 space-y-1">
+                    <p>
+                      예산 비율 — Dcv {pct(rfp.process_meta.budget_split_percentages.discover)}% ·
+                      Def {pct(rfp.process_meta.budget_split_percentages.define)}% ·
+                      Dev {pct(rfp.process_meta.budget_split_percentages.develop)}% ·
+                      Dlv {pct(rfp.process_meta.budget_split_percentages.deliver)}%
+                    </p>
+                    <p>
+                      기간 비율 — Dcv {pct(rfp.process_meta.duration_split_percentages.discover)}% ·
+                      Def {pct(rfp.process_meta.duration_split_percentages.define)}% ·
+                      Dev {pct(rfp.process_meta.duration_split_percentages.develop)}% ·
+                      Dlv {pct(rfp.process_meta.duration_split_percentages.deliver)}%
+                    </p>
+                    {rfp.process_meta.assumptions?.length ? (
+                      <ul className="list-disc list-inside">
+                        {rfp.process_meta.assumptions.map((a, i) => <li key={i}>{a}</li>)}
+                      </ul>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </section>
 
-            {/* 7. 누구를 만나야 할까 (전문가 가이드) */}
+            {/* 6. 누구를 만나야 할까 (전문가 가이드) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑦ 누구를 만나야 할까</h2>
+              <h2 className="font-semibold mb-2">⑥ 누구를 만나야 할까</h2>
               <ul className="flex flex-wrap gap-2">
                 {rfp.experts_to_meet?.map((e, i) => (
                   <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
@@ -291,10 +333,24 @@ export default function Home() {
               </ul>
             </section>
 
-            {/* 8. 전문가 4인 관점 리뷰 (탭) */}
+            {/* 7. 전문가 4인 관점 리뷰 (탭) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-3">⑧ 전문가 관점 리뷰</h2>
+              <h2 className="font-semibold mb-3">⑦ 전문가 관점 리뷰</h2>
               <ExpertTabs data={rfp.expert_reviews} />
+            </section>
+
+            {/* 8. 비주얼 RFP — 항상 마지막 요약 카드 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold mb-2">⑧ 비주얼 RFP / 브리프 초안</h2>
+              <div className="text-sm space-y-1">
+                <p><strong>프로젝트명:</strong> {rfp.visual_rfp.project_title}</p>
+                <p><strong>배경:</strong> {rfp.visual_rfp.background}</p>
+                <p><strong>목표:</strong> {rfp.visual_rfp.objective}</p>
+                <p><strong>타겟 사용자:</strong> {rfp.visual_rfp.target_users}</p>
+                <p><strong>핵심 요구사항:</strong> {rfp.visual_rfp.core_requirements.join(", ")}</p>
+                <p><strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}</p>
+                <p><strong>납품물:</strong> {rfp.visual_rfp.deliverables.join(", ")}</p>
+              </div>
             </section>
           </div>
         )}
