@@ -17,7 +17,7 @@ type Img = {
 async function fetchFromPexels(query: string): Promise<Img[]> {
   const key = process.env.PEXELS_API_KEY;
   if (!key) {
-    throw new Error("PEXELS_API_KEY 환경변수가 없습니다.");
+    throw new Error("PEXELS_API_KEY 환경변수가 없습니다. Pexels 대시보드와 Vercel 설정을 확인해 주세요.");
   }
 
   const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(
@@ -25,27 +25,41 @@ async function fetchFromPexels(query: string): Promise<Img[]> {
   )}&per_page=4`;
 
   const res = await fetch(url, {
-    headers: {
-      Authorization: key,
-    },
+    headers: { Authorization: key },
   });
 
   const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    const text = await res.text();
+  const text = await res.text(); // 한 번만 읽고 재사용
+
+  const isJson = contentType.includes("application/json");
+
+  if (!isJson) {
+    console.error(
+      "[Pexels] Non-JSON response",
+      res.status,
+      contentType,
+      text.slice(0, 200)
+    );
     throw new Error(
-      "이미지 서버 응답이 JSON이 아닙니다: " + text.slice(0, 120)
+      `Pexels API 응답이 JSON이 아닙니다 (status ${res.status}). ` +
+        `보통은 API 키가 잘못되었거나, 사용량 제한/인증 오류일 때 이런 현상이 나타납니다. ` +
+        `Pexels 대시보드에서 키를 다시 확인해 주세요.`
     );
   }
 
   if (!res.ok) {
-    const errJson = await res.json().catch(() => ({}));
-    throw new Error(
-      errJson?.error || `Pexels 요청 실패 (status ${res.status})`
-    );
+    console.error("[Pexels] Error response", res.status, text.slice(0, 200));
+    let errMsg = `Pexels 요청 실패 (status ${res.status})`;
+    try {
+      const json = JSON.parse(text);
+      if (json?.error) errMsg = `Pexels 에러: ${json.error}`;
+    } catch {
+      // ignore
+    }
+    throw new Error(errMsg);
   }
 
-  const data = (await res.json()) as any;
+  const data = JSON.parse(text) as any;
   const photos = Array.isArray(data.photos) ? data.photos : [];
 
   return photos.slice(0, 4).map((p: any) => ({
@@ -59,7 +73,7 @@ async function fetchFromPexels(query: string): Promise<Img[]> {
   }));
 }
 
-// Unsplash에서 이미지 가져오기 (키 없으면 Pexels로 폴백)
+// Unsplash (없으면 Pexels로 폴백)
 async function fetchFromUnsplashOrFallback(query: string): Promise<Img[]> {
   const key = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY;
 
@@ -73,27 +87,38 @@ async function fetchFromUnsplashOrFallback(query: string): Promise<Img[]> {
   )}&per_page=4&content_filter=high`;
 
   const res = await fetch(url, {
-    headers: {
-      Authorization: `Client-ID ${key}`,
-    },
+    headers: { Authorization: `Client-ID ${key}` },
   });
 
   const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    const text = await res.text();
+  const text = await res.text();
+  const isJson = contentType.includes("application/json");
+
+  if (!isJson) {
+    console.error(
+      "[Unsplash] Non-JSON response",
+      res.status,
+      contentType,
+      text.slice(0, 200)
+    );
     throw new Error(
-      "이미지 서버 응답이 JSON이 아닙니다: " + text.slice(0, 120)
+      `Unsplash API 응답이 JSON이 아닙니다 (status ${res.status}). API 키/요청 설정을 확인해 주세요.`
     );
   }
 
   if (!res.ok) {
-    const errJson = await res.json().catch(() => ({}));
-    throw new Error(
-      errJson?.error || `Unsplash 요청 실패 (status ${res.status})`
-    );
+    console.error("[Unsplash] Error response", res.status, text.slice(0, 200));
+    let errMsg = `Unsplash 요청 실패 (status ${res.status})`;
+    try {
+      const json = JSON.parse(text);
+      if (json?.errors?.length) errMsg = `Unsplash 에러: ${json.errors[0]}`;
+    } catch {
+      // ignore
+    }
+    throw new Error(errMsg);
   }
 
-  const data = (await res.json()) as any;
+  const data = JSON.parse(text) as any;
   const results = Array.isArray(data.results) ? data.results : [];
 
   return results.slice(0, 4).map((p: any) => ({
@@ -112,7 +137,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const q =
       searchParams.get("q")?.trim() || "product design concept";
-    const providerParam = searchParams.get("provider") as Provider | null;
+    const providerParam =
+      (searchParams.get("provider") as Provider | null) || "pexels";
 
     const provider: Provider =
       providerParam === "unsplash" ? "unsplash" : "pexels";
@@ -132,7 +158,7 @@ export async function GET(req: NextRequest) {
       {
         error:
           err?.message ||
-          "이미지 검색 중 오류가 발생했습니다.",
+          "이미지 검색 중 오류가 발생했습니다. (관리자: 서버 로그를 확인해 주세요.)",
         images: [],
       },
       { status: 500 }

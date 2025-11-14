@@ -171,7 +171,7 @@ try {
         </h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하면, 타겟/문제 정의부터 관련 이미지, 프로세스(안), 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
+          제품 아이디어를 입력하면, 문제 정의부터 디자인 컨셉 도출, 프로세스(안), 전문가 별 가이드, RFP 요약까지 자동으로 정리합니다.
         </p>
 
         <textarea
@@ -223,9 +223,9 @@ try {
 
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
-            {/* ① 타겟/문제 정의 */}
+            {/* ① 목표 설정 및 문제 정의 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold mb-2">① 타겟 & 문제 정의</h2>
+              <h2 className="font-semibold mb-2">① 목표 설정 및 문제 정의</h2>
               <p className="font-medium mb-1">{rfp.target_and_problem.summary}</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">
                 {rfp.target_and_problem.details}
