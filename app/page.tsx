@@ -167,7 +167,7 @@ try {
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
         <h1 className="text-3xl font-semibold">
-          제품디자인 기획안, 텍스트 한 줄로 완성
+          제품디자인 기획안(RFP), 텍스트 한 줄로 완성
         </h1>
 
         <p className="text-sm text-gray-600">
