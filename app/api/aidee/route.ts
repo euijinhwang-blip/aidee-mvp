@@ -226,37 +226,6 @@ ${surveyText}
         console.error("OpenAI 호출 실패, MOCK으로 대체:", err?.message || err);
       }
     }
-// app/api/images/route.ts
-import { NextRequest } from "next/server";
-
-type Img = {
-  id: string;
-  thumb: string;
-  full: string;
-  alt: string;
-  author?: string;
-  link?: string;
-  source: "pexels" | "unsplash";
-};
-
-const PEXELS = process.env.PEXELS_API_KEY!;
-const UNSPLASH = process.env.UNSPLASH_ACCESS_KEY!; // server-side key
-
-async function fromPexels(q: string, per = 4): Promise<Img[]> {
-  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=${per}`;
-  const res = await fetch(url, { headers: { Authorization: PEXELS }, cache: "no-store" });
-  if (!res.ok) throw new Error("Pexels error");
-  const json = await res.json();
-  return (json.photos || []).map((p: any) => ({
-    id: String(p.id),
-    thumb: p.src.medium,
-    full: p.src.large2x || p.src.large,
-    alt: p.alt || q,
-    author: p.photographer,
-    link: p.url,
-    source: "pexels" as const,
-  }));
-}
 
 async function fromUnsplash(q: string, per = 4): Promise<Img[]> {
   const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=${per}&client_id=${UNSPLASH}`;
@@ -435,4 +404,35 @@ export async function GET(req: NextRequest) {
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
+}
+// app/api/images/route.ts
+import { NextRequest } from "next/server";
+
+type Img = {
+  id: string;
+  thumb: string;
+  full: string;
+  alt: string;
+  author?: string;
+  link?: string;
+  source: "pexels" | "unsplash";
+};
+
+const PEXELS = process.env.PEXELS_API_KEY!;
+const UNSPLASH = process.env.UNSPLASH_ACCESS_KEY!; // server-side key
+
+async function fromPexels(q: string, per = 4): Promise<Img[]> {
+  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=${per}`;
+  const res = await fetch(url, { headers: { Authorization: PEXELS }, cache: "no-store" });
+  if (!res.ok) throw new Error("Pexels error");
+  const json = await res.json();
+  return (json.photos || []).map((p: any) => ({
+    id: String(p.id),
+    thumb: p.src.medium,
+    full: p.src.large2x || p.src.large,
+    alt: p.alt || q,
+    author: p.photographer,
+    link: p.url,
+    source: "pexels" as const,
+  }));
 }
