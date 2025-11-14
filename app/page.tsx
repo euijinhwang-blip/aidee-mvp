@@ -160,11 +160,11 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
         <h1 className="text-3xl font-semibold">
-          제품디자인 기획부터 디자인까지, 텍스트 한 줄로 완성
+          제품디자인 기획안, 텍스트 한 줄로 완성
         </h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하면, 타겟/문제 정의부터 관련 이미지, 프로세스(안), 전문가 가이드, 비주얼 RFP까지 자동으로 정리합니다.
+          제품 아이디어를 입력하면, 타겟/문제 정의부터 관련 이미지, 프로세스(안), 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
         </p>
 
         <textarea
@@ -245,9 +245,9 @@ export default function Home() {
               </ul>
             </section>
 
-            {/* ④ 컨셉 & 레퍼런스 키워드 */}
+            {/* ④ 레퍼런스 검색 키워드 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
+              <h2 className="font-semibold mb-2">④ 레퍼런스 검색 키워드</h2>
               <p className="text-sm mb-2">{rfp.concept_and_references.concept_summary}</p>
               <div className="flex flex-wrap gap-2 text-xs">
                 {rfp.concept_and_references.reference_keywords.map((k, i) => (
@@ -256,9 +256,9 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑤ 관련 이미지 및 비주얼 무드 자동생성 (최대 4장) */}
+            {/* ⑤ 영감이 되는 이미지 (최대 4장) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑤ 관련 이미지 및 비주얼 무드 자동생성</h2>
+              <h2 className="font-semibold mb-2">⑤ 영감이 되는 이미지</h2>
               {imgLoading && <p className="text-sm text-gray-500">이미지 불러오는 중…</p>}
               {imgError && <p className="text-sm text-red-500">{imgError}</p>}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -292,9 +292,9 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑦ 누구를 만나야 할까 */}
+            {/* ⑦ 나의 협력 파트너 추천 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑦ 누구를 만나야 할까</h2>
+              <h2 className="font-semibold mb-2">⑦ 나의 협력 파트너 추천</h2>
               <ul className="flex flex-wrap gap-2">
                 {rfp.experts_to_meet?.map((e, i) => (
                   <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
@@ -335,9 +335,9 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑨ 비주얼 RFP / 브리프 초안 (항상 마지막) */}
+            {/* ⑨ RFP 요약 (항상 마지막) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑨ 비주얼 RFP / 브리프 초안</h2>
+              <h2 className="font-semibold mb-2">⑨ RFP 요약</h2>
               <div className="text-sm space-y-1">
                 <p><strong>프로젝트명:</strong> {rfp.visual_rfp.project_title}</p>
                 <p><strong>배경:</strong> {rfp.visual_rfp.background}</p>
