@@ -119,7 +119,14 @@ export default function Home() {
         const q = keywords[0] || rfp?.visual_rfp?.project_title || "product design concept";
         const actualProvider = provider === "unsplash" && !unsplashKey ? "pexels" : provider;
         const r = await fetch(`/api/images?q=${encodeURIComponent(q)}&provider=${actualProvider}`);
-        const j = await r.json();
+        const text = await r.text();
+let j;
+try {
+  j = JSON.parse(text);
+} catch {
+  throw new Error("이미지 서버 응답이 JSON이 아닙니다: " + text.slice(0, 50));
+}
+
         if (!r.ok) throw new Error(j?.error || "이미지 검색 실패");
         setImages(j.images || []);
         if (provider === "unsplash" && !unsplashKey) {
