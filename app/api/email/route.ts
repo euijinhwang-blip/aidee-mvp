@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
+import Resend from "resend";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,28 +12,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!to) {
+      return NextResponse.json(
+        { error: "이메일 주소가 없습니다." },
+        { status: 400 }
+      );
+    }
+
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     const html = `
-      <h2>${rfp.visual_rfp.project_title}</h2>
-      <p>${rfp.target_and_problem.summary}</p>
-      <p>${rfp.target_and_problem.details}</p>
-
+      <h2>Aidee · 비주얼 RFP</h2>
+      <pre>${JSON.stringify(rfp, null, 2)}</pre>
       <h3>이미지</h3>
       ${images
-        .map((im: any) => `<img src="${im.thumb}" width="200" style="margin-right:8px"/>`)
+        ?.map((i: any) => `<img src="${i.full}" width="300" style="margin:8px 0;" />`)
         .join("")}
     `;
 
     const result = await resend.emails.send({
       from: "Aidee <no-reply@aidee.ai>",
       to,
-      subject,
+      subject: subject || "Aidee RFP 결과",
       html,
     });
 
-    return NextResponse.json({ ok: true, id: result.id });
+    return NextResponse.json({
+      ok: true,
+      id: result.data?.id || null,
+      status: "sent",
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "서버 오류" },
+      { status: 500 }
+    );
   }
 }
