@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-/** ---------- 데이터 타입 ---------- */
+/** ---------- 타입 ---------- */
 type Phase = {
   goals: string[];
-  tasks: { title: string; owner: string }[]; // 기간 제거
+  tasks: { title: string; owner: string }[];
   deliverables: string[];
 };
 
-type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
+type ExpertPackFriendly = {
+  plain_summary: string;
+  top_risks: string[];
+  next_actions: string[];
+  checklist: string[];
+  famous_examples: string[];
+};
 
 type Survey = {
   budget_krw?: string;
@@ -34,7 +40,6 @@ type RFP = {
     design_direction: string;
     deliverables: string[];
   };
-
   double_diamond?: {
     overall_budget_time?: {
       total_budget_krw?: string;
@@ -53,18 +58,16 @@ type RFP = {
     develop: Phase;
     deliver: Phase;
   };
-
   experts_to_meet?: { role: string; why: string }[];
-
   expert_reviews?: {
-    pm: ExpertPack;
-    designer: ExpertPack;
-    engineer: ExpertPack;
-    marketer: ExpertPack;
+    pm: ExpertPackFriendly;
+    designer: ExpertPackFriendly;
+    engineer: ExpertPackFriendly;
+    marketer: ExpertPackFriendly;
   };
 };
 
-/** ---------- 프레젠테이션 컴포넌트 ---------- */
+/** ---------- 공통 컴포넌트 ---------- */
 function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
   if (!phase) return null;
   return (
@@ -95,137 +98,79 @@ function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
   );
 }
 
-function ExpertTab({ pack }: { pack?: ExpertPack }) {
+function ExpertBlock({ title, pack }: { title: string; pack?: ExpertPackFriendly }) {
   if (!pack) return null;
   return (
-    <div className="grid md:grid-cols-3 gap-3 text-sm">
-      <div className="bg-white rounded-2xl p-4 shadow-sm">
-        <h4 className="font-semibold mb-2">⚠️ Risks</h4>
-        <ul className="list-disc list-inside text-gray-700">
-          {pack.risks?.map((x, i) => <li key={i}>{x}</li>)}
-        </ul>
+    <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
+      <h3 className="font-semibold">{title}</h3>
+      <p className="text-sm text-gray-800 whitespace-pre-wrap">{pack.plain_summary}</p>
+      <div className="grid md:grid-cols-3 gap-3 text-sm">
+        <div>
+          <h4 className="font-medium mb-1">⚠️ Top 3 Risks</h4>
+          <ul className="list-disc list-inside text-gray-700">
+            {pack.top_risks?.map((x, i) => <li key={i}>{x}</li>)}
+          </ul>
+        </div>
+        <div>
+          <h4 className="font-medium mb-1">▶️ Next Actions</h4>
+          <ul className="list-disc list-inside text-gray-700">
+            {pack.next_actions?.map((x, i) => <li key={i}>{x}</li>)}
+          </ul>
+        </div>
+        <div>
+          <h4 className="font-medium mb-1">✅ Checklist</h4>
+          <ul className="list-disc list-inside text-gray-700">
+            {pack.checklist?.map((x, i) => <li key={i}>{x}</li>)}
+          </ul>
+        </div>
       </div>
-      <div className="bg-white rounded-2xl p-4 shadow-sm">
-        <h4 className="font-semibold mb-2">📌 Asks</h4>
-        <ul className="list-disc list-inside text-gray-700">
-          {pack.asks?.map((x, i) => <li key={i}>{x}</li>)}
-        </ul>
-      </div>
-      <div className="bg-white rounded-2xl p-4 shadow-sm">
-        <h4 className="font-semibold mb-2">✅ Checklist</h4>
-        <ul className="list-disc list-inside text-gray-700">
-          {pack.checklist?.map((x, i) => <li key={i}>{x}</li>)}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function ExpertTabs({ data }: { data?: RFP["expert_reviews"] }) {
-  const [tab, setTab] = useState<"pm" | "designer" | "engineer" | "marketer">("pm");
-
-  const Btn = ({ k, label }: { k: typeof tab; label: string }) => (
-    <button
-      onClick={() => setTab(k)}
-      className={
-        "px-3 py-1 rounded-full text-sm border mr-2 " +
-        (tab === k ? "bg-black text-white" : "bg-white")
-      }
-    >
-      {label}
-    </button>
-  );
-
-  if (!data) return <p className="text-sm text-gray-500">리뷰 정보가 없습니다.</p>;
-
-  return (
-    <div className="space-y-4">
-      <div className="mb-2">
-        <Btn k="pm" label="PM/기획" />
-        <Btn k="designer" label="디자이너" />
-        <Btn k="engineer" label="엔지니어" />
-        <Btn k="marketer" label="마케터" />
-      </div>
-
-      {tab === "pm" && <ExpertTab pack={data.pm} />}
-      {tab === "designer" && <ExpertTab pack={data.designer} />}
-      {tab === "engineer" && <ExpertTab pack={data.engineer} />}
-      {tab === "marketer" && <ExpertTab pack={data.marketer} />}
+      {pack.famous_examples?.length ? (
+        <p className="text-xs text-gray-500">
+          예시: {pack.famous_examples.join(" · ")}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 /** ---------- 설문 폼 ---------- */
-function SurveyForm({
-  value,
-  onChange,
-}: {
-  value: Survey;
-  onChange: (s: Survey) => void;
-}) {
+function SurveyForm({ value, onChange }: { value: Survey; onChange: (s: Survey) => void }) {
   const update = (k: keyof Survey, v: string) => onChange({ ...value, [k]: v });
-
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm space-y-3">
       <h2 className="font-semibold mb-1">🧮 사용자 설문 (예산/기간/시장)</h2>
       <div className="grid md:grid-cols-2 gap-3 text-sm">
-        <input
-          className="border rounded-lg px-3 py-2"
-          placeholder="예산(예: 3000만~5000만원)"
-          value={value.budget_krw || ""}
-          onChange={(e) => update("budget_krw", e.target.value)}
-        />
-        <input
-          className="border rounded-lg px-3 py-2"
-          placeholder="희망 일정(예: 올해 10월 출시 / 6개월 내)"
-          value={value.launch_plan || ""}
-          onChange={(e) => update("launch_plan", e.target.value)}
-        />
-        <input
-          className="border rounded-lg px-3 py-2"
-          placeholder="타겟 시장(예: 국내 B2C, 1차 채널 자사몰/쿠팡)"
-          value={value.market || ""}
-          onChange={(e) => update("market", e.target.value)}
-        />
-        <input
-          className="border rounded-lg px-3 py-2"
-          placeholder="우선순위 2개(예: 원가, 리드타임)"
-          value={value.priority || ""}
-          onChange={(e) => update("priority", e.target.value)}
-        />
-        <input
-          className="border rounded-lg px-3 py-2"
-          placeholder="리스크 허용도(보수/중간/공격)"
-          value={value.risk_tolerance || ""}
-          onChange={(e) => update("risk_tolerance", e.target.value)}
-        />
-        <input
-          className="border rounded-lg px-3 py-2"
-          placeholder="규제·인증 우려(예: 전기/전파/생활제품/의료)"
-          value={value.compliance || ""}
-          onChange={(e) => update("compliance", e.target.value)}
-        />
+        <input className="border rounded-lg px-3 py-2" placeholder="예산(예: 3000만~5000만원)"
+               value={value.budget_krw || ""} onChange={(e) => update("budget_krw", e.target.value)} />
+        <input className="border rounded-lg px-3 py-2" placeholder="희망 일정(예: 올해 10월 출시 / 6개월 내)"
+               value={value.launch_plan || ""} onChange={(e) => update("launch_plan", e.target.value)} />
+        <input className="border rounded-lg px-3 py-2" placeholder="타겟 시장(예: 국내 B2C, 1차 채널 자사몰/쿠팡)"
+               value={value.market || ""} onChange={(e) => update("market", e.target.value)} />
+        <input className="border rounded-lg px-3 py-2" placeholder="우선순위 2개(예: 원가, 리드타임)"
+               value={value.priority || ""} onChange={(e) => update("priority", e.target.value)} />
+        <input className="border rounded-lg px-3 py-2" placeholder="리스크 허용도(보수/중간/공격)"
+               value={value.risk_tolerance || ""} onChange={(e) => update("risk_tolerance", e.target.value)} />
+        <input className="border rounded-lg px-3 py-2" placeholder="규제·인증 우려(예: 전기/전파/생활제품/의료)"
+               value={value.compliance || ""} onChange={(e) => update("compliance", e.target.value)} />
       </div>
       <p className="text-xs text-gray-500">
-        입력한 값은 로드맵/리스크/전략 가중치에 반영됩니다(예산·기간 제약 시 스펙 축소/단순화 등).
+        입력값은 로드맵/리스크/전략 가중치에 반영됩니다(예산/기간 제약 시 스펙 축소·단순화 등).
       </p>
     </div>
   );
 }
 
-/** ---------- Unsplash 레퍼런스 이미지 ---------- */
+/** ---------- Unsplash ---------- */
 type UnsplashPhoto = {
   id: string;
   alt_description: string | null;
   urls: { small: string };
   links: { html: string };
-  user: { name: string; links: { html: string } };
 };
 
 function RefImageGrid({ keywords }: { keywords?: string[] }) {
   const [imgs, setImgs] = useState<UnsplashPhoto[]>([]);
   const accessKey = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY;
-
   const query = useMemo(() => (keywords && keywords.length ? keywords[0] : ""), [keywords]);
 
   useEffect(() => {
@@ -247,33 +192,25 @@ function RefImageGrid({ keywords }: { keywords?: string[] }) {
     return () => { ignore = true; };
   }, [query, accessKey]);
 
-  if (!query) return null;
-
   return (
     <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-      <h2 className="font-semibold mb-2">🔎 레퍼런스 이미지 (Unsplash)</h2>
-      {!accessKey && (
+      <h2 className="font-semibold mb-2">⑤ 레퍼런스 이미지 (Unsplash)</h2>
+      {!accessKey ? (
         <p className="text-sm text-red-500">
           NEXT_PUBLIC_UNSPLASH_ACCESS_KEY 환경변수가 없습니다.
         </p>
+      ) : null}
+      {accessKey && query && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {imgs.map((p) => (
+            <a key={p.id} href={p.links.html} target="_blank" rel="noreferrer"
+               className="block overflow-hidden rounded-lg border">
+              <img src={p.urls.small} alt={p.alt_description || ""} className="w-full h-full object-cover" />
+            </a>
+          ))}
+        </div>
       )}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {imgs.map((p) => (
-          <a
-            key={p.id}
-            href={p.links.html}
-            target="_blank"
-            rel="noreferrer"
-            className="block overflow-hidden rounded-lg border"
-            title={p.alt_description || ""}
-          >
-            <img src={p.urls.small} alt={p.alt_description || ""} className="w-full h-full object-cover" />
-          </a>
-        ))}
-      </div>
-      <p className="text-xs text-gray-500 mt-2">
-        이미지 제공: Unsplash (학습용·참고용)
-      </p>
+      <p className="text-xs text-gray-500 mt-2">이미지 제공: Unsplash (학습용·참고용)</p>
     </section>
   );
 }
@@ -285,27 +222,22 @@ export default function Home() {
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const printRef = useRef<HTMLDivElement>(null);
 
   const handleGenerate = async () => {
     setLoading(true);
     setError("");
     setRfp(null);
-
     try {
       const res = await fetch("/api/aidee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idea, survey }),
       });
-
       const text = await res.text();
       let data: any = null;
-
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch (e) {
-        throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 200));
-      }
+      try { data = text ? JSON.parse(text) : null; }
+      catch { throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 200)); }
 
       if (!res.ok) {
         const msg = (data && (data.error || data.detail)) || `요청 실패 (status ${res.status})`;
@@ -314,22 +246,55 @@ export default function Home() {
         setRfp(data as RFP);
       }
     } catch (e: any) {
-      console.error(e);
       setError(e.message || "네트워크 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
 
+  const handlePrintPDF = () => {
+    window.print(); // 브라우저의 PDF 저장
+  };
+
+  const handleEmail = async () => {
+    const to = prompt("받을 이메일 주소를 입력하세요 (예: you@example.com)");
+    if (!to) return;
+    if (!rfp) return alert("먼저 RFP를 생성해 주세요.");
+
+    // 간단한 HTML 본문
+    const html = `
+      <div style="font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;">
+        <h2>Aidee 결과물</h2>
+        <p><b>프로젝트명:</b> ${rfp.visual_rfp?.project_title || "-"}</p>
+        <p><b>요약:</b> ${rfp.target_and_problem?.summary || "-"}</p>
+        <p><b>목표:</b> ${rfp.visual_rfp?.objective || "-"}</p>
+        <p style="color:#666;font-size:12px;">* 첨부 PDF 대신 본문 요약을 전송합니다. (RESEND_API_KEY 설정 시 메일 발송)</p>
+      </div>
+    `;
+
+    try {
+      const res = await fetch("/api/aidee?action=send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to, html, subject: "Aidee 결과물" })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "메일 전송 실패");
+      alert("메일 전송 완료!");
+    } catch (e: any) {
+      alert(e.message || "메일 전송 실패");
+    }
+  };
+
   return (
-    <main className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <main className="min-h-screen bg-gray-50 p-8 print:bg-white">
+      <div className="max-w-5xl mx-auto space-y-6" ref={printRef}>
         <h1 className="text-3xl font-semibold">
           제품디자인 기획부터 디자인까지, 텍스트 한 줄로 완성
         </h1>
 
         <p className="text-sm text-gray-600">
-          아이디어 한 줄을 입력하면, 기획·전략·로드맵·전문가 리뷰·레퍼런스 이미지까지 자동 구성됩니다.
+          아이디어 한 줄을 입력하면, 기획·전략·프로세스·전문가 리뷰·레퍼런스 이미지까지 자동 구성됩니다.
         </p>
 
         <textarea
@@ -342,19 +307,27 @@ export default function Home() {
 
         <SurveyForm value={survey} onChange={setSurvey} />
 
-        <button
-          onClick={handleGenerate}
-          disabled={loading || !idea}
-          className="px-6 py-3 rounded-lg border bg-white disabled:opacity-50"
-        >
-          {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
-        </button>
+        <div className="flex gap-2 print:hidden">
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !idea}
+            className="px-6 py-3 rounded-lg border bg-white disabled:opacity-50"
+          >
+            {loading ? "분석/생성 중..." : "RFP 생성하기"}
+          </button>
+          <button onClick={handlePrintPDF} className="px-6 py-3 rounded-lg border bg-white">
+            PDF 저장
+          </button>
+          <button onClick={handleEmail} className="px-6 py-3 rounded-lg border bg-white">
+            이메일로 받기(옵션)
+          </button>
+        </div>
 
         {error && <div className="text-red-500 text-sm">{error}</div>}
 
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
-            {/* 1. 타겟/문제 정의 */}
+            {/* 1 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold mb-2">① 타겟 & 문제 정의</h2>
               <p className="font-medium mb-1">{rfp.target_and_problem.summary}</p>
@@ -363,31 +336,27 @@ export default function Home() {
               </p>
             </section>
 
-            {/* 2. 핵심 기능 제안 */}
+            {/* 2 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold mb-2">② 핵심 기능 제안</h2>
               <ul className="space-y-1 text-sm">
                 {rfp.key_features.map((f, i) => (
-                  <li key={i}>
-                    <strong>{f.name}</strong> — {f.description}
-                  </li>
+                  <li key={i}><strong>{f.name}</strong> — {f.description}</li>
                 ))}
               </ul>
             </section>
 
-            {/* 3. 차별화 포인트 */}
+            {/* 3 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold mb-2">③ 차별화 포인트 & 전략</h2>
               <ul className="space-y-1 text-sm">
                 {rfp.differentiation.map((d, i) => (
-                  <li key={i}>
-                    <strong>{d.point}</strong>: {d.strategy}
-                  </li>
+                  <li key={i}><strong>{d.point}</strong>: {d.strategy}</li>
                 ))}
               </ul>
             </section>
 
-            {/* 4. 컨셉 & 레퍼런스 키워드 */}
+            {/* 4 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
               <p className="text-sm mb-2">{rfp.concept_and_references.concept_summary}</p>
@@ -398,10 +367,10 @@ export default function Home() {
               </div>
             </section>
 
-            {/* 🔎 4-1. Unsplash 이미지 그리드 */}
+            {/* 5 */}
             <RefImageGrid keywords={rfp.concept_and_references.reference_keywords} />
 
-            {/* 6. 디자인 및 사업화 프로세스(안) */}
+            {/* 6 */}
             <section className="md:col-span-2 space-y-3">
               <h2 className="font-semibold">⑥ 디자인 및 사업화 프로세스(안)</h2>
 
@@ -412,38 +381,36 @@ export default function Home() {
                   {rfp.double_diamond.overall_budget_time.ratio && (
                     <p>
                       <strong>비율:</strong>{" "}
-                      D {rfp.double_diamond.overall_budget_time.ratio.discover} /{" "}
-                      Df {rfp.double_diamond.overall_budget_time.ratio.define} /{" "}
-                      Dev {rfp.double_diamond.overall_budget_time.ratio.develop} /{" "}
-                      Dl {rfp.double_diamond.overall_budget_time.ratio.deliver}
+                      Discover(탐색) {rfp.double_diamond.overall_budget_time.ratio.discover} /{" "}
+                      Define(정의) {rfp.double_diamond.overall_budget_time.ratio.define} /{" "}
+                      Develop(개발) {rfp.double_diamond.overall_budget_time.ratio.develop} /{" "}
+                      Deliver(배포) {rfp.double_diamond.overall_budget_time.ratio.deliver}
                     </p>
                   )}
                   {rfp.double_diamond.overall_budget_time.notes && (
-                    <p className="text-gray-600 mt-1">
-                      <strong>메모:</strong> {rfp.double_diamond.overall_budget_time.notes}
-                    </p>
+                    <p className="text-gray-600 mt-1"><strong>메모:</strong> {rfp.double_diamond.overall_budget_time.notes}</p>
                   )}
                 </div>
               )}
 
               {rfp.double_diamond?.purpose_notes && (
                 <div className="bg-white p-4 rounded-2xl shadow-sm text-sm">
-                  <p><strong>DISCOVER:</strong> {rfp.double_diamond.purpose_notes.discover}</p>
-                  <p><strong>DEFINE:</strong> {rfp.double_diamond.purpose_notes.define}</p>
-                  <p><strong>DEVELOP:</strong> {rfp.double_diamond.purpose_notes.develop}</p>
-                  <p><strong>DELIVER:</strong> {rfp.double_diamond.purpose_notes.deliver}</p>
+                  <p><strong>Discover(탐색):</strong> {rfp.double_diamond.purpose_notes.discover}</p>
+                  <p><strong>Define(정의):</strong> {rfp.double_diamond.purpose_notes.define}</p>
+                  <p><strong>Develop(개발):</strong> {rfp.double_diamond.purpose_notes.develop}</p>
+                  <p><strong>Deliver(배포):</strong> {rfp.double_diamond.purpose_notes.deliver}</p>
                 </div>
               )}
 
               <div className="grid md:grid-cols-4 gap-3">
-                <PhaseCard title="DISCOVER" phase={rfp.double_diamond?.discover} />
-                <PhaseCard title="DEFINE"   phase={rfp.double_diamond?.define} />
-                <PhaseCard title="DEVELOP"  phase={rfp.double_diamond?.develop} />
-                <PhaseCard title="DELIVER"  phase={rfp.double_diamond?.deliver} />
+                <PhaseCard title="Discover(탐색)" phase={rfp.double_diamond?.discover} />
+                <PhaseCard title="Define(정의)"   phase={rfp.double_diamond?.define} />
+                <PhaseCard title="Develop(개발)"  phase={rfp.double_diamond?.develop} />
+                <PhaseCard title="Deliver(배포)"  phase={rfp.double_diamond?.deliver} />
               </div>
             </section>
 
-            {/* 7. 누구를 만나야 할까 (전문가 가이드) */}
+            {/* 7 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
               <h2 className="font-semibold mb-2">⑦ 누구를 만나야 할까</h2>
               <ul className="flex flex-wrap gap-2">
@@ -456,13 +423,16 @@ export default function Home() {
               </ul>
             </section>
 
-            {/* 8. 전문가 4인 관점 리뷰 (탭) */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-3">⑧ 전문가 관점 리뷰</h2>
-              <ExpertTabs data={rfp.expert_reviews} />
+            {/* 8 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2 space-y-3">
+              <h2 className="font-semibold">⑧ 전문가 관점 리뷰</h2>
+              <ExpertBlock title="PM/기획" pack={rfp.expert_reviews?.pm} />
+              <ExpertBlock title="디자이너" pack={rfp.expert_reviews?.designer} />
+              <ExpertBlock title="엔지니어" pack={rfp.expert_reviews?.engineer} />
+              <ExpertBlock title="마케터" pack={rfp.expert_reviews?.marketer} />
             </section>
 
-            {/* 9. 비주얼 RFP / 브리프 초안 (항상 마지막 요약) */}
+            {/* 9 (항상 마지막) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
               <h2 className="font-semibold mb-2">⑨ 비주얼 RFP / 브리프 초안</h2>
               <div className="text-sm space-y-1">
@@ -478,6 +448,14 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* 프린트(=PDF) 스타일 */}
+      <style jsx global>{`
+        @media print {
+          .print\\:hidden { display: none !important; }
+          body { background: #fff !important; }
+        }
+      `}</style>
     </main>
   );
 }

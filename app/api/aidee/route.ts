@@ -2,34 +2,89 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-// OPENAI_API_KEY가 있으면 실제 API 사용, 없거나 에러면 MOCK 사용
-const hasApiKey = !!process.env.OPENAI_API_KEY;
-const client = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+// === Providers & Flags ===
+const hasOpenAI = !!process.env.OPENAI_API_KEY;
+const client = hasOpenAI ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+
+// === Types ===
 type Survey = {
-  budget_krw?: string; // 예: "3000만~5000만원"
-  launch_plan?: string; // 예: "올해 10월 출시" or "6개월 내"
-  market?: string;      // 예: "국내 B2C, 1차 채널: 자사몰/쿠팡"
-  priority?: string;    // 예: "원가, 리드타임"
-  risk_tolerance?: string; // 예: "중간"
-  compliance?: string;  // 예: "전기/전파 인증 우려"
+  budget_krw?: string;
+  launch_plan?: string;
+  market?: string;
+  priority?: string;
+  risk_tolerance?: string;
+  compliance?: string;
 };
 
+type EmailPayload = {
+  to: string;
+  subject?: string;
+  html: string;
+};
+
+// === Helpers ===
+async function sendEmailWithResend(payload: EmailPayload) {
+  if (!RESEND_API_KEY) {
+    return {
+      ok: false,
+      message: "RESEND_API_KEY가 없습니다. Vercel 환경변수에 추가해 주세요.",
+    };
+  }
+  // Resend REST API 호출
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: "Aidee MVP <onboarding@resend.dev>",
+      to: [payload.to],
+      subject: payload.subject || "Aidee 결과물",
+      html: payload.html
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    return { ok: false, message: `메일 발송 실패: ${text}` };
+  }
+  return { ok: true, message: "메일 발송 성공" };
+}
+
+// === Route ===
 export async function POST(req: Request) {
   try {
-    const { idea, survey } = await req.json() as { idea: string; survey?: Survey };
+    const url = new URL(req.url);
+    const action = url.searchParams.get("action");
 
-    if (!idea || typeof idea !== "string") {
-      return new Response(JSON.stringify({ error: "아이디어가 비어 있습니다." }), {
-        status: 400,
+    // ---- A) 이메일 전송 (옵션) ----
+    if (action === "send-email") {
+      const body = (await req.json()) as EmailPayload;
+      if (!body?.to || !body?.html) {
+        return new Response(
+          JSON.stringify({ error: "to, html은 필수입니다." }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      const result = await sendEmailWithResend(body);
+      return new Response(JSON.stringify(result), {
+        status: result.ok ? 200 : 500,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // 1) OpenAI API 시도
-    if (client) {
-      try {
-        const surveyText = `
+    // ---- B) RFP 생성 ----
+    const { idea, survey } = (await req.json()) as { idea: string; survey?: Survey };
+    if (!idea || typeof idea !== "string") {
+      return new Response(JSON.stringify({ error: "아이디어가 비어 있습니다." }), {
+        status: 400, headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const surveyText = `
 [Survey Constraints]
 - Budget: ${survey?.budget_krw || "N/A"}
 - Launch Plan: ${survey?.launch_plan || "N/A"}
@@ -39,11 +94,14 @@ export async function POST(req: Request) {
 - Compliance/Certification: ${survey?.compliance || "N/A"}
 
 지시사항:
-- 위 설문 제약을 반영해 더블다이아몬드 각 단계의 목표/태스크/산출물의 난이도·범위를 조정하라.
-- 예산이 낮거나 일정이 촉박하면 공정/부품 단순화, 스펙 축소, 단계 병행 등 현실적인 타협안을 제시하라.
-- 각 단계 비율(Discover/Define/Develop/Deliver)은 일반적인 20/20/40/20을 기준으로 조정 사유가 있으면 설명 메모를 덧붙여라.
+- 위 설문 제약을 강하게 반영하여 기획·로드맵·리뷰의 난이도/범위를 현실화할 것.
+- 예산 낮음/일정 촉박 → 공정·부품 단순화, 스펙 축소, 단계 병행 등 구체 대안.
+- 더블다이아몬드 4단계 비율은 기본 20/20/40/20, 조정 사유가 있으면 notes로 명시.
+- "전문가 관점 리뷰"는 비전문가도 이해되도록 **친절한 설명 글**(plain_summary) + **Top 3 리스크** + **바로 다음 행동** + **체크리스트(짧게)** + **잘 알려진 사례(간단 설명)**로 작성.
 `.trim();
 
+    if (client) {
+      try {
         const systemPrompt = `
 당신은 제품 디자인과 사업화 경험이 있는 시니어 컨설턴트입니다.
 사용자의 아이디어를 기반으로 아래 JSON만 정확히 반환하세요. (설명문/코드블록 금지)
@@ -59,7 +117,7 @@ ${surveyText}
   "differentiation": [{ "point": "차별 포인트", "strategy": "구체 전략" }],
   "concept_and_references": {
     "concept_summary": "전체 컨셉 정리",
-    "reference_keywords": ["이미지/레퍼런스 검색용 키워드들(영문 키워드 우선)"]
+    "reference_keywords": ["이미지 검색용 영문 키워드 위주"]
   },
   "visual_rfp": {
     "project_title": "프로젝트명",
@@ -79,7 +137,7 @@ ${surveyText}
     },
     "purpose_notes": {
       "discover": "문제와 사용자를 넓게 탐색해 기회와 위험을 파악하는 단계",
-      "define":   "가설을 좁혀 구체 요구사항/성능/원가 경계를 확정하는 단계",
+      "define":   "가설을 좁혀 요구사항/성능/원가 경계를 확정하는 단계",
       "develop":  "설계·시작품·인증·양산 준비 등 실현 가능성을 검증하는 단계",
       "deliver":  "양산, 패키지/라벨, 마케팅/판매까지 실제 출시를 완성하는 단계"
     },
@@ -127,24 +185,20 @@ ${surveyText}
   ],
   "expert_reviews": {
     "pm": {
-      "risks": ["시장 검증 부족", "부품 리드타임 불확실성"],
-      "asks": ["MVP 범위 확정", "주요 리스크 등록"],
-      "checklist": ["PRD v1", "리스크 레지스터"]
+      "plain_summary": "비전문가도 이해할 쉬운 설명",
+      "top_risks": ["리스크1","리스크2","리스크3"],
+      "next_actions": ["바로 할 일1","바로 할 일2","바로 할 일3"],
+      "checklist": ["체크1","체크2","체크3"],
+      "famous_examples": ["유명사례 1줄", "유명사례 1줄"]
     },
     "designer": {
-      "risks": ["착용 흔들림", "페르소나 미스핏"],
-      "asks": ["핵심 사용 시나리오 검증", "CMF 샘플링"],
-      "checklist": ["핵심 사용자 플로우", "인체 기준치 반영"]
+      "plain_summary": "", "top_risks": [], "next_actions": [], "checklist": [], "famous_examples": []
     },
     "engineer": {
-      "risks": ["열/소음/배터리", "부품 EOL"],
-      "asks": ["예비 인증 문의", "BOM v1 작성"],
-      "checklist": ["DFM 점검", "안전 규격 매핑"]
+      "plain_summary": "", "top_risks": [], "next_actions": [], "checklist": [], "famous_examples": []
     },
     "marketer": {
-      "risks": ["차별성 커뮤니케이션 난이도", "가격 저항"],
-      "asks": ["포지셔닝 A/B", "채널 테스트"],
-      "checklist": ["런칭 메시지", "채널별 마진 구조"]
+      "plain_summary": "", "top_risks": [], "next_actions": [], "checklist": [], "famous_examples": []
     }
   }
 }
@@ -155,30 +209,29 @@ ${surveyText}
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `제품 아이디어: "${idea}"에 대해 위 JSON 형식을 따라 작성해 주세요.` },
+            {
+              role: "user",
+              content: `제품 아이디어: "${idea}"에 대해 위 JSON 형식을 따라 작성해 주세요.`,
+            },
           ],
         });
 
         const content = completion.choices[0].message.content;
         if (!content) throw new Error("모델 응답이 비어 있습니다.");
-
         const parsed = JSON.parse(content);
         return new Response(JSON.stringify(parsed), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
+          status: 200, headers: { "Content-Type": "application/json" },
         });
       } catch (err: any) {
-        console.error("OpenAI 호출 실패, MOCK 데이터로 대체:", err?.message || err);
-        // 아래 MOCK으로 폴백
+        console.error("OpenAI 호출 실패, MOCK으로 대체:", err?.message || err);
       }
     }
 
-    // 2) MOCK 응답
+    // ---- MOCK (키 없거나 에러 시) ----
     const mock = {
       target_and_problem: {
         summary: "야외 러너의 호흡 건강과 쾌적한 러닝 환경 확보",
-        details:
-          "도시 러너는 미세먼지/배기가스/꽃가루 등에 노출된다. 휴대·착용성을 갖춘 미니 공기청정 웨어러블은 실질적/심리적 안전감을 제공한다."
+        details: "도시 러너는 미세먼지/배기가스/꽃가루 등에 노출된다. 경량·착용성 미니 공기청정 웨어러블은 실질적/심리적 안전감을 제공."
       },
       key_features: [
         { name: "러닝 최적화 공기 정화 모듈", description: "호흡 방해 최소화, 경량 설계" },
@@ -202,7 +255,7 @@ ${surveyText}
         ]
       },
       visual_rfp: {
-        project_title: "야외 러너용 미니 공기청정 웨어러블 디자인",
+        project_title: "야외 러너용 미니 공기청정 웨어러블",
         background: "도시 러닝 증가와 공기 오염 이슈 동시 증가",
         objective: "착용 부담 최소+실질 정화+심리적 안심 제공",
         target_users: "도시권 20–40대 러너",
@@ -266,24 +319,44 @@ ${surveyText}
         { role: "인증 대행", why: "필요 인증 경로 안내" }
       ],
       expert_reviews: {
-        pm: { risks: ["시장 검증 부족","부품 리드타임"], asks: ["MVP 범위","리스크 등록"], checklist: ["PRD v1","리스크 레지스터"] },
-        designer: { risks: ["착용 흔들림"], asks: ["핵심 시나리오 검증","CMF 샘플"], checklist: ["사용자 플로우","인체 기준치"] },
-        engineer: { risks: ["열/소음/배터리"], asks: ["예비 인증","BOM v1"], checklist: ["DFM 점검","규격 매핑"] },
-        marketer: { risks: ["가격 저항"], asks: ["포지셔닝 A/B","채널 테스트"], checklist: ["런칭 메시지","마진 구조"] }
+        pm: {
+          plain_summary: "전체 프로젝트의 일정·예산·리스크를 조율해 성공 확률을 높이는 역할입니다. 지금 아이디어는 시장 검증과 ‘최소 기능’의 범위를 잡는 게 핵심이에요.",
+          top_risks: ["수요 검증 부족","부품 리드타임 변동","범위 확대(스코프 크립)"],
+          next_actions: ["MVP 범위 한 줄로 정의","필수/선택 기능 구분","리스크 레지스터 작성"],
+          checklist: ["PRD v1","리스크 레지스터","주간 진행 표준(스탠드업)"],
+          famous_examples: ["GoPro: 최소 기능으로 시장 진입 후 확장","Slack: 내부툴에서 전환, 코어 가치 검증"]
+        },
+        designer: {
+          plain_summary: "사용자 경험을 쉬운 형태로 풀어 ‘누구나 편하게’ 쓰게 만드는 역할입니다.",
+          top_risks: ["착용감/무게로 인한 피로","페르소나 미스매치","야간 시인성 미흡"],
+          next_actions: ["핵심 시나리오(착용-러닝-휴식) 빠른 목업 검증","CMF 샘플 수집","야간 테스트 체크"],
+          checklist: ["핵심 사용자 플로우","인체 기준치 반영","간단한 사용성 테스트"],
+          famous_examples: ["Dyson: 인체공학·공기 흐름을 디자인 요소로","Apple Watch: 착용 감각과 UI의 통합"]
+        },
+        engineer: {
+          plain_summary: "안전·내구·배터리·소음 등 ‘성능과 안전’을 수치로 보장합니다.",
+          top_risks: ["열/소음/배터리","부품 단종(EOL)","인증 리스크"],
+          next_actions: ["예비 인증 문의","BOM v1 작성","DFM 체크로 원가/납기 확보"],
+          checklist: ["안전 규격 매핑","BOM v1","DFM 체크"],
+          famous_examples: ["Anker: 안정성·원가의 균형으로 신뢰 형성"]
+        },
+        marketer: {
+          plain_summary: "‘왜 이 제품이 필요한지’를 한 문장으로 설명하고, 알맞은 채널/가격을 찾습니다.",
+          top_risks: ["차별성 메시지 약함","가격 저항","채널 과소/과다"],
+          next_actions: ["포지셔닝 문장 A/B","초기 채널 1~2개 집중","리뷰·UGC 계획"],
+          checklist: ["런칭 메시지","채널별 수수료/마진","간단한 GA 이벤트"],
+          famous_examples: ["Oura Ring: 착용성·데이터 인사이트 강조","WHOOP: 특정 타깃(운동) 집중 후 확장"]
+        }
       }
     };
 
     return new Response(JSON.stringify(mock), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
+      status: 200, headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {
     console.error("최종 서버 오류:", err);
     return new Response(
-      JSON.stringify({
-        error: "서버 에러가 발생했습니다.",
-        detail: err?.message || String(err),
-      }),
+      JSON.stringify({ error: "서버 에러가 발생했습니다.", detail: err?.message || String(err) }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
