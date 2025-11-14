@@ -1,57 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 /** ---------- 데이터 타입 ---------- */
 type Phase = {
-  /** 각 단계의 한 줄 목적(초보자 가이드) */
-  purpose: string;
   goals: string[];
-  /** 기간 제거: owner만 표기 */
-  tasks: { title: string; owner: string }[];
+  tasks: { title: string; owner: string }[]; // 기간 제거
   deliverables: string[];
 };
 
 type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
 
-type ProcessMeta = {
-  estimated_budget_total_krw: string;        // 예: "80,000,000 ~ 200,000,000"
-  estimated_duration_weeks: string;          // 예: "16 ~ 36"
-  budget_split_percentages: { discover: number; define: number; develop: number; deliver: number };
-  duration_split_percentages: { discover: number; define: number; develop: number; deliver: number };
-  assumptions: string[];
+type Survey = {
+  budget_krw?: string;
+  launch_plan?: string;
+  market?: string;
+  priority?: string;
+  risk_tolerance?: string;
+  compliance?: string;
 };
 
 type RFP = {
-  // 기존 RFP 필드
   target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
   concept_and_references: { concept_summary: string; reference_keywords: string[] };
-
-  /** 🔹 NEW: 더블다이아몬드(=디자인·사업화 프로세스) */
-  double_diamond?: {
-    discover: Phase;
-    define: Phase;
-    develop: Phase;
-    deliver: Phase;
-  };
-
-  /** 🔹 NEW: 예산/기간 메타 정보 */
-  process_meta?: ProcessMeta;
-
-  /** 🔹 NEW: 만나야 할 전문가 리스트 */
-  experts_to_meet?: { role: string; why: string }[];
-
-  /** 🔹 NEW: 전문가 4인 관점 리뷰 */
-  expert_reviews?: {
-    pm: ExpertPack;
-    designer: ExpertPack;
-    engineer: ExpertPack;
-    marketer: ExpertPack;
-  };
-
-  /** 🔹 마지막 요약 카드 */
   visual_rfp: {
     project_title: string;
     background: string;
@@ -61,10 +34,35 @@ type RFP = {
     design_direction: string;
     deliverables: string[];
   };
-};
 
-/** ---------- 유틸 ---------- */
-const pct = (n?: number) => (typeof n === "number" ? Math.round(n * 100) : undefined);
+  double_diamond?: {
+    overall_budget_time?: {
+      total_budget_krw?: string;
+      total_time_weeks?: string;
+      ratio?: { discover: string; define: string; develop: string; deliver: string };
+      notes?: string;
+    };
+    purpose_notes?: {
+      discover: string;
+      define: string;
+      develop: string;
+      deliver: string;
+    };
+    discover: Phase;
+    define: Phase;
+    develop: Phase;
+    deliver: Phase;
+  };
+
+  experts_to_meet?: { role: string; why: string }[];
+
+  expert_reviews?: {
+    pm: ExpertPack;
+    designer: ExpertPack;
+    engineer: ExpertPack;
+    marketer: ExpertPack;
+  };
+};
 
 /** ---------- 프레젠테이션 컴포넌트 ---------- */
 function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
@@ -72,19 +70,12 @@ function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
       <h3 className="font-semibold">{title}</h3>
-
-      {/* 한 줄 목적 */}
-      {phase.purpose && (
-        <p className="text-xs text-gray-600 border rounded-lg px-2 py-1">{phase.purpose}</p>
-      )}
-
       <div className="text-sm">
         <p className="mb-1"><strong>🎯 Goals</strong></p>
         <ul className="list-disc list-inside text-gray-700">
           {phase.goals?.map((g, i) => <li key={i}>{g}</li>)}
         </ul>
       </div>
-
       <div className="text-sm">
         <p className="mb-1"><strong>🛠️ Tasks</strong></p>
         <ul className="space-y-1 text-gray-700">
@@ -96,7 +87,6 @@ function PhaseCard({ title, phase }: { title: string; phase?: Phase }) {
           ))}
         </ul>
       </div>
-
       <div className="text-sm">
         <p className="mb-1"><strong>🧾 Deliverables</strong></p>
         <p className="text-gray-700">{phase.deliverables?.join(", ")}</p>
@@ -165,9 +155,133 @@ function ExpertTabs({ data }: { data?: RFP["expert_reviews"] }) {
   );
 }
 
+/** ---------- 설문 폼 ---------- */
+function SurveyForm({
+  value,
+  onChange,
+}: {
+  value: Survey;
+  onChange: (s: Survey) => void;
+}) {
+  const update = (k: keyof Survey, v: string) => onChange({ ...value, [k]: v });
+
+  return (
+    <div className="bg-white p-4 rounded-2xl shadow-sm space-y-3">
+      <h2 className="font-semibold mb-1">🧮 사용자 설문 (예산/기간/시장)</h2>
+      <div className="grid md:grid-cols-2 gap-3 text-sm">
+        <input
+          className="border rounded-lg px-3 py-2"
+          placeholder="예산(예: 3000만~5000만원)"
+          value={value.budget_krw || ""}
+          onChange={(e) => update("budget_krw", e.target.value)}
+        />
+        <input
+          className="border rounded-lg px-3 py-2"
+          placeholder="희망 일정(예: 올해 10월 출시 / 6개월 내)"
+          value={value.launch_plan || ""}
+          onChange={(e) => update("launch_plan", e.target.value)}
+        />
+        <input
+          className="border rounded-lg px-3 py-2"
+          placeholder="타겟 시장(예: 국내 B2C, 1차 채널 자사몰/쿠팡)"
+          value={value.market || ""}
+          onChange={(e) => update("market", e.target.value)}
+        />
+        <input
+          className="border rounded-lg px-3 py-2"
+          placeholder="우선순위 2개(예: 원가, 리드타임)"
+          value={value.priority || ""}
+          onChange={(e) => update("priority", e.target.value)}
+        />
+        <input
+          className="border rounded-lg px-3 py-2"
+          placeholder="리스크 허용도(보수/중간/공격)"
+          value={value.risk_tolerance || ""}
+          onChange={(e) => update("risk_tolerance", e.target.value)}
+        />
+        <input
+          className="border rounded-lg px-3 py-2"
+          placeholder="규제·인증 우려(예: 전기/전파/생활제품/의료)"
+          value={value.compliance || ""}
+          onChange={(e) => update("compliance", e.target.value)}
+        />
+      </div>
+      <p className="text-xs text-gray-500">
+        입력한 값은 로드맵/리스크/전략 가중치에 반영됩니다(예산·기간 제약 시 스펙 축소/단순화 등).
+      </p>
+    </div>
+  );
+}
+
+/** ---------- Unsplash 레퍼런스 이미지 ---------- */
+type UnsplashPhoto = {
+  id: string;
+  alt_description: string | null;
+  urls: { small: string };
+  links: { html: string };
+  user: { name: string; links: { html: string } };
+};
+
+function RefImageGrid({ keywords }: { keywords?: string[] }) {
+  const [imgs, setImgs] = useState<UnsplashPhoto[]>([]);
+  const accessKey = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY;
+
+  const query = useMemo(() => (keywords && keywords.length ? keywords[0] : ""), [keywords]);
+
+  useEffect(() => {
+    let ignore = false;
+    async function run() {
+      setImgs([]);
+      if (!accessKey || !query) return;
+      try {
+        const url =
+          `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=12&client_id=${accessKey}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        if (!ignore && json?.results) setImgs(json.results);
+      } catch {
+        // 무시
+      }
+    }
+    run();
+    return () => { ignore = true; };
+  }, [query, accessKey]);
+
+  if (!query) return null;
+
+  return (
+    <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
+      <h2 className="font-semibold mb-2">🔎 레퍼런스 이미지 (Unsplash)</h2>
+      {!accessKey && (
+        <p className="text-sm text-red-500">
+          NEXT_PUBLIC_UNSPLASH_ACCESS_KEY 환경변수가 없습니다.
+        </p>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {imgs.map((p) => (
+          <a
+            key={p.id}
+            href={p.links.html}
+            target="_blank"
+            rel="noreferrer"
+            className="block overflow-hidden rounded-lg border"
+            title={p.alt_description || ""}
+          >
+            <img src={p.urls.small} alt={p.alt_description || ""} className="w-full h-full object-cover" />
+          </a>
+        ))}
+      </div>
+      <p className="text-xs text-gray-500 mt-2">
+        이미지 제공: Unsplash (학습용·참고용)
+      </p>
+    </section>
+  );
+}
+
 /** ---------- 페이지 ---------- */
 export default function Home() {
   const [idea, setIdea] = useState("");
+  const [survey, setSurvey] = useState<Survey>({});
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -181,7 +295,7 @@ export default function Home() {
       const res = await fetch("/api/aidee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea }),
+        body: JSON.stringify({ idea, survey }),
       });
 
       const text = await res.text();
@@ -210,10 +324,12 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-3xl font-semibold">Aidee MVP · 아이디어를 구조화된 비주얼 RFP로</h1>
+        <h1 className="text-3xl font-semibold">
+          제품디자인 기획부터 디자인까지, 텍스트 한 줄로 완성
+        </h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하면, 타겟/문제 정의부터 전문가 리뷰, 디자인·사업화 로드맵까지 자동으로 구조화해 줍니다.
+          아이디어 한 줄을 입력하면, 기획·전략·로드맵·전문가 리뷰·레퍼런스 이미지까지 자동 구성됩니다.
         </p>
 
         <textarea
@@ -223,6 +339,8 @@ export default function Home() {
           value={idea}
           onChange={(e) => setIdea(e.target.value)}
         />
+
+        <SurveyForm value={survey} onChange={setSurvey} />
 
         <button
           onClick={handleGenerate}
@@ -269,7 +387,7 @@ export default function Home() {
               </ul>
             </section>
 
-            {/* 4. 컨셉 & 레퍼런스 */}
+            {/* 4. 컨셉 & 레퍼런스 키워드 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
               <p className="text-sm mb-2">{rfp.concept_and_references.concept_summary}</p>
@@ -280,49 +398,54 @@ export default function Home() {
               </div>
             </section>
 
-            {/* 5. 디자인 및 사업화 프로세스(안) */}
+            {/* 🔎 4-1. Unsplash 이미지 그리드 */}
+            <RefImageGrid keywords={rfp.concept_and_references.reference_keywords} />
+
+            {/* 6. 디자인 및 사업화 프로세스(안) */}
             <section className="md:col-span-2 space-y-3">
-              <h2 className="font-semibold">⑤ 디자인 및 사업화 프로세스(안)</h2>
+              <h2 className="font-semibold">⑥ 디자인 및 사업화 프로세스(안)</h2>
+
+              {rfp.double_diamond?.overall_budget_time && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm text-sm">
+                  <p><strong>총 예산:</strong> {rfp.double_diamond.overall_budget_time.total_budget_krw || "-"}</p>
+                  <p><strong>총 기간:</strong> {rfp.double_diamond.overall_budget_time.total_time_weeks || "-"}</p>
+                  {rfp.double_diamond.overall_budget_time.ratio && (
+                    <p>
+                      <strong>비율:</strong>{" "}
+                      D {rfp.double_diamond.overall_budget_time.ratio.discover} /{" "}
+                      Df {rfp.double_diamond.overall_budget_time.ratio.define} /{" "}
+                      Dev {rfp.double_diamond.overall_budget_time.ratio.develop} /{" "}
+                      Dl {rfp.double_diamond.overall_budget_time.ratio.deliver}
+                    </p>
+                  )}
+                  {rfp.double_diamond.overall_budget_time.notes && (
+                    <p className="text-gray-600 mt-1">
+                      <strong>메모:</strong> {rfp.double_diamond.overall_budget_time.notes}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {rfp.double_diamond?.purpose_notes && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm text-sm">
+                  <p><strong>DISCOVER:</strong> {rfp.double_diamond.purpose_notes.discover}</p>
+                  <p><strong>DEFINE:</strong> {rfp.double_diamond.purpose_notes.define}</p>
+                  <p><strong>DEVELOP:</strong> {rfp.double_diamond.purpose_notes.develop}</p>
+                  <p><strong>DELIVER:</strong> {rfp.double_diamond.purpose_notes.deliver}</p>
+                </div>
+              )}
+
               <div className="grid md:grid-cols-4 gap-3">
                 <PhaseCard title="DISCOVER" phase={rfp.double_diamond?.discover} />
                 <PhaseCard title="DEFINE"   phase={rfp.double_diamond?.define} />
                 <PhaseCard title="DEVELOP"  phase={rfp.double_diamond?.develop} />
                 <PhaseCard title="DELIVER"  phase={rfp.double_diamond?.deliver} />
               </div>
-
-              {/* 메타 정보 (예산/기간/비율) */}
-              {rfp.process_meta && (
-                <div className="bg-white p-4 rounded-2xl shadow-sm">
-                  <h3 className="font-semibold mb-2">예상 예산·기간(가이드)</h3>
-                  <p className="text-sm text-gray-700">
-                    총 예산: {rfp.process_meta.estimated_budget_total_krw} / 예상 기간: {rfp.process_meta.estimated_duration_weeks}주
-                  </p>
-                  <div className="text-xs text-gray-600 mt-2 space-y-1">
-                    <p>
-                      예산 비율 — Dcv {pct(rfp.process_meta.budget_split_percentages.discover)}% ·
-                      Def {pct(rfp.process_meta.budget_split_percentages.define)}% ·
-                      Dev {pct(rfp.process_meta.budget_split_percentages.develop)}% ·
-                      Dlv {pct(rfp.process_meta.budget_split_percentages.deliver)}%
-                    </p>
-                    <p>
-                      기간 비율 — Dcv {pct(rfp.process_meta.duration_split_percentages.discover)}% ·
-                      Def {pct(rfp.process_meta.duration_split_percentages.define)}% ·
-                      Dev {pct(rfp.process_meta.duration_split_percentages.develop)}% ·
-                      Dlv {pct(rfp.process_meta.duration_split_percentages.deliver)}%
-                    </p>
-                    {rfp.process_meta.assumptions?.length ? (
-                      <ul className="list-disc list-inside">
-                        {rfp.process_meta.assumptions.map((a, i) => <li key={i}>{a}</li>)}
-                      </ul>
-                    ) : null}
-                  </div>
-                </div>
-              )}
             </section>
 
-            {/* 6. 누구를 만나야 할까 (전문가 가이드) */}
+            {/* 7. 누구를 만나야 할까 (전문가 가이드) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑥ 누구를 만나야 할까</h2>
+              <h2 className="font-semibold mb-2">⑦ 누구를 만나야 할까</h2>
               <ul className="flex flex-wrap gap-2">
                 {rfp.experts_to_meet?.map((e, i) => (
                   <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
@@ -333,15 +456,15 @@ export default function Home() {
               </ul>
             </section>
 
-            {/* 7. 전문가 4인 관점 리뷰 (탭) */}
+            {/* 8. 전문가 4인 관점 리뷰 (탭) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-3">⑦ 전문가 관점 리뷰</h2>
+              <h2 className="font-semibold mb-3">⑧ 전문가 관점 리뷰</h2>
               <ExpertTabs data={rfp.expert_reviews} />
             </section>
 
-            {/* 8. 비주얼 RFP — 항상 마지막 요약 카드 */}
+            {/* 9. 비주얼 RFP / 브리프 초안 (항상 마지막 요약) */}
             <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑧ 비주얼 RFP / 브리프 초안</h2>
+              <h2 className="font-semibold mb-2">⑨ 비주얼 RFP / 브리프 초안</h2>
               <div className="text-sm space-y-1">
                 <p><strong>프로젝트명:</strong> {rfp.visual_rfp.project_title}</p>
                 <p><strong>배경:</strong> {rfp.visual_rfp.background}</p>
