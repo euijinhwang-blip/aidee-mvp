@@ -1,204 +1,107 @@
+// app/api/aidee/route.ts
 import OpenAI from "openai";
 
-export const runtime = "nodejs";
+// OPENAI_API_KEY가 있으면 실제 API 사용, 없거나 에러면 MOCK 사용
+const hasApiKey = !!process.env.OPENAI_API_KEY;
+const client = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
-// === Providers & Flags ===
-const hasOpenAI = !!process.env.OPENAI_API_KEY;
-const client = hasOpenAI ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
-
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-
-// === Types ===
-type Survey = {
-  budget_krw?: string;
-  launch_plan?: string;
-  market?: string;
-  priority?: string;
-  risk_tolerance?: string;
-  compliance?: string;
-};
-
-type EmailPayload = {
-  to: string;
-  subject?: string;
-  html: string;
-};
-
-// === Helpers ===
-async function sendEmailWithResend(payload: EmailPayload) {
-  if (!RESEND_API_KEY) {
-    return {
-      ok: false,
-      message: "RESEND_API_KEY가 없습니다. Vercel 환경변수에 추가해 주세요.",
-    };
-  }
-  // Resend REST API 호출
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: "Aidee MVP <onboarding@resend.dev>",
-      to: [payload.to],
-      subject: payload.subject || "Aidee 결과물",
-      html: payload.html
-    })
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    return { ok: false, message: `메일 발송 실패: ${text}` };
-  }
-  return { ok: true, message: "메일 발송 성공" };
-}
-
-// === Route ===
 export async function POST(req: Request) {
   try {
-    const url = new URL(req.url);
-    const action = url.searchParams.get("action");
+    const { idea, survey } = await req.json(); // survey는 나중에 확장용
 
-    // ---- A) 이메일 전송 (옵션) ----
-    if (action === "send-email") {
-      const body = (await req.json()) as EmailPayload;
-      if (!body?.to || !body?.html) {
-        return new Response(
-          JSON.stringify({ error: "to, html은 필수입니다." }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      const result = await sendEmailWithResend(body);
-      return new Response(JSON.stringify(result), {
-        status: result.ok ? 200 : 500,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // ---- B) RFP 생성 ----
-    const { idea, survey } = (await req.json()) as { idea: string; survey?: Survey };
     if (!idea || typeof idea !== "string") {
-      return new Response(JSON.stringify({ error: "아이디어가 비어 있습니다." }), {
-        status: 400, headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "아이디어가 비어 있습니다." }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
     }
 
-    const surveyText = `
-[Survey Constraints]
-- Budget: ${survey?.budget_krw || "N/A"}
-- Launch Plan: ${survey?.launch_plan || "N/A"}
-- Target Market: ${survey?.market || "N/A"}
-- Priority: ${survey?.priority || "N/A"}
-- Risk Tolerance: ${survey?.risk_tolerance || "N/A"}
-- Compliance/Certification: ${survey?.compliance || "N/A"}
-
-지시사항:
-- 위 설문 제약을 강하게 반영하여 기획·로드맵·리뷰의 난이도/범위를 현실화할 것.
-- 예산 낮음/일정 촉박 → 공정·부품 단순화, 스펙 축소, 단계 병행 등 구체 대안.
-- 더블다이아몬드 4단계 비율은 기본 20/20/40/20, 조정 사유가 있으면 notes로 명시.
-- "전문가 관점 리뷰"는 비전문가도 이해되도록 **친절한 설명 글**(plain_summary) + **Top 3 리스크** + **바로 다음 행동** + **체크리스트(짧게)** + **잘 알려진 사례(간단 설명)**로 작성.
-`.trim();
-
+    // 1) OpenAI API 시도 (키도 있고, 쿼터도 남아 있을 경우)
     if (client) {
       try {
         const systemPrompt = `
-당신은 제품 디자인과 사업화 경험이 있는 시니어 컨설턴트입니다.
-사용자의 아이디어를 기반으로 아래 JSON만 정확히 반환하세요. (설명문/코드블록 금지)
+당신은 실제 제품 디자인과 하드웨어 사업화 경험을 가진 시니어 컨설턴트입니다.
+아래 JSON 스키마에 맞춰, 비전문가도 이해하기 쉬운 한국어로만 채워 주세요.
 
-${surveyText}
+반드시 JSON 객체 하나만 반환하세요. 설명 문장, 마크다운, 코드블록 등은 절대 포함하지 마세요.
 
 {
   "target_and_problem": {
     "summary": "한 줄 요약",
-    "details": "맥락과 인사이트를 포함한 상세 설명"
+    "details": "왜 이 제품이 필요한지, 초보자도 이해할 수 있게 스토리텔링으로 설명"
   },
-  "key_features": [{ "name": "기능 이름", "description": "설명" }],
-  "differentiation": [{ "point": "차별 포인트", "strategy": "구체 전략" }],
+  "key_features": [
+    { "name": "핵심 기능 이름", "description": "일상 언어로 쉽게 푸는 설명" }
+  ],
+  "differentiation": [
+    { "point": "차별 포인트", "strategy": "다른 제품과 어떻게 다르게 보이게 할지 쉬운 설명" }
+  ],
   "concept_and_references": {
-    "concept_summary": "전체 컨셉 정리",
-    "reference_keywords": ["이미지 검색용 영문 키워드 위주"]
+    "concept_summary": "전체 컨셉을 한 문단으로 정리",
+    "reference_keywords": ["이미지 검색용 키워드 3~7개"]
   },
   "visual_rfp": {
     "project_title": "프로젝트명",
-    "background": "배경 및 문제의식",
+    "background": "배경과 문제의식",
     "objective": "디자인/사업 목표",
     "target_users": "핵심 타겟",
     "core_requirements": ["핵심 요구사항 3~7개"],
-    "design_direction": "형태, 재질, 톤앤매너 등",
+    "design_direction": "형태, 재질, 색, 톤앤매너 등",
     "deliverables": ["필요 산출물 리스트"]
   },
   "double_diamond": {
-    "overall_budget_time": {
-      "total_budget_krw": "예: 약 3천만~5천만원 (설문 반영)",
-      "total_time_weeks": "예: 약 10~16주 (설문 반영)",
-      "ratio": { "discover": "20%", "define": "20%", "develop": "40%", "deliver": "20%" },
-      "notes": "예산/기간/우선순위/인증 우려 등 설문 기반 조정 메모"
-    },
-    "purpose_notes": {
-      "discover": "문제와 사용자를 넓게 탐색해 기회와 위험을 파악하는 단계",
-      "define":   "가설을 좁혀 요구사항/성능/원가 경계를 확정하는 단계",
-      "develop":  "설계·시작품·인증·양산 준비 등 실현 가능성을 검증하는 단계",
-      "deliver":  "양산, 패키지/라벨, 마케팅/판매까지 실제 출시를 완성하는 단계"
-    },
     "discover": {
-      "goals": ["문제/사용자 맥락 파악", "경쟁/대체재 파악"],
+      "goals": ["이 단계에서 무엇을 이해해야 하는지"],
       "tasks": [
-        { "title": "현장/데스크 리서치", "owner": "PM/리서처" },
-        { "title": "타깃 인터뷰/설문", "owner": "PM/디자이너" }
+        { "title": "해야 할 대표 활동 1", "owner": "PM/디자이너/엔지니어 등" }
       ],
-      "deliverables": ["인사이트 메모", "경쟁 포지션 맵"]
+      "deliverables": ["이 단계의 대표 결과물"]
     },
     "define": {
-      "goals": ["요구사항·성능·원가 가드레일 확정"],
+      "goals": ["문제를 어떻게 정의할지"],
       "tasks": [
-        { "title": "PRD/요구사항 매트릭스", "owner": "PM" },
-        { "title": "핵심 성능 지표 합의", "owner": "엔지니어/디자이너" }
+        { "title": "요구사항 정리 활동", "owner": "PM" }
       ],
-      "deliverables": ["PRD v1", "요구사항 매트릭스"]
+      "deliverables": ["요구사항 문서, 핵심 지표 등"]
     },
     "develop": {
-      "goals": ["설계/시작품", "인증·양산 준비"],
+      "goals": ["어떤 시제품과 설계를 만드는지"],
       "tasks": [
-        { "title": "구조설계·부품 선정(BOM v1)", "owner": "엔지니어" },
-        { "title": "3D/CMF 목업", "owner": "디자이너" },
-        { "title": "인증 사전 검토", "owner": "PM/엔지니어" }
+        { "title": "시제품/3D 설계", "owner": "디자이너/엔지니어" }
       ],
-      "deliverables": ["3D STEP", "BOM v1", "목업 사진", "인증 체크리스트"]
+      "deliverables": ["3D 파일, 목업 사진 등"]
     },
     "deliver": {
-      "goals": ["양산·런칭·판매"],
+      "goals": ["양산과 판매를 위해 준비할 것들"],
       "tasks": [
-        { "title": "금형/양산업체 RFQ·발주", "owner": "PM/구매" },
-        { "title": "패키지/라벨/매뉴얼", "owner": "디자이너/MD" },
-        { "title": "런칭 플랜(채널/가격/프로모션)", "owner": "마케터" }
+        { "title": "양산업체 협의, 패키지/매뉴얼 제작", "owner": "PM/디자이너/MD" }
       ],
-      "deliverables": ["PO·생산일정", "패키지 파일", "런칭 캘린더", "커머스 세팅"]
+      "deliverables": ["생산 일정, 패키지 파일, 런칭 플랜 등"]
     }
   },
   "experts_to_meet": [
-    { "role": "제품 디자이너", "why": "형태/사용성·CMF 결정" },
-    { "role": "엔지니어(구조/전자)", "why": "부품·BOM·안전성" },
-    { "role": "양산업체/금형사", "why": "DFM/원가·납기" },
-    { "role": "마케터/MD", "why": "채널 전략/가격/콘텐츠" },
-    { "role": "인증 대행", "why": "필요 인증 경로 안내" }
+    { "role": "전문가 직군명", "why": "이 사람을 만나면 어떤 도움이 되는지" }
   ],
   "expert_reviews": {
     "pm": {
-      "plain_summary": "비전문가도 이해할 쉬운 설명",
-      "top_risks": ["리스크1","리스크2","리스크3"],
-      "next_actions": ["바로 할 일1","바로 할 일2","바로 할 일3"],
-      "checklist": ["체크1","체크2","체크3"],
-      "famous_examples": ["유명사례 1줄", "유명사례 1줄"]
+      "risks": ["시장·일정 관점에서 주의해야 할 점들"],
+      "asks": ["지금 당장 PM이 확인해야 할 액션 아이템"],
+      "checklist": ["PM 관점 체크리스트 항목"]
     },
     "designer": {
-      "plain_summary": "", "top_risks": [], "next_actions": [], "checklist": [], "famous_examples": []
+      "risks": ["사용성·브랜드 관점에서의 위험 요소"],
+      "asks": ["디자이너가 먼저 해 보면 좋은 작업"],
+      "checklist": ["디자인 관점 체크리스트"]
     },
     "engineer": {
-      "plain_summary": "", "top_risks": [], "next_actions": [], "checklist": [], "famous_examples": []
+      "risks": ["기술·구조·안전 관점 리스크"],
+      "asks": ["엔지니어가 먼저 확인해야 할 것"],
+      "checklist": ["엔지니어링 관점 체크리스트"]
     },
     "marketer": {
-      "plain_summary": "", "top_risks": [], "next_actions": [], "checklist": [], "famous_examples": []
+      "risks": ["시장/경쟁/가격 관점 리스크"],
+      "asks": ["마케팅/채널 준비 관련 액션"],
+      "checklist": ["마케팅 관점 체크리스트"]
     }
   }
 }
@@ -211,228 +114,191 @@ ${surveyText}
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: `제품 아이디어: "${idea}"에 대해 위 JSON 형식을 따라 작성해 주세요.`,
+              content: `제품 아이디어: "${idea}" 에 대해 위 JSON 형식에 맞춰 작성해 주세요.`,
             },
           ],
         });
 
         const content = completion.choices[0].message.content;
         if (!content) throw new Error("모델 응답이 비어 있습니다.");
+
         const parsed = JSON.parse(content);
         return new Response(JSON.stringify(parsed), {
-          status: 200, headers: { "Content-Type": "application/json" },
+          status: 200,
+          headers: { "Content-Type": "application/json" },
         });
       } catch (err: any) {
-        console.error("OpenAI 호출 실패, MOCK으로 대체:", err?.message || err);
+        console.error("OpenAI 호출 실패, MOCK 데이터로 대체합니다:", err?.message || err);
+        // 아래 MOCK 사용
       }
     }
 
-async function fromUnsplash(q: string, per = 4): Promise<Img[]> {
-  const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=${per}&client_id=${UNSPLASH}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Unsplash error");
-  const json = await res.json();
-  return (json.results || []).map((r: any) => ({
-    id: r.id,
-    thumb: r.urls.small,
-    full: r.urls.full || r.urls.regular,
-    alt: r.alt_description || q,
-    author: r.user?.name,
-    link: r.links?.html,
-    source: "unsplash" as const,
-  }));
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const q = searchParams.get("q") || "";
-    const provider = (searchParams.get("provider") || "pexels") as "pexels" | "unsplash";
-
-    if (!q.trim()) return Response.json({ images: [] });
-
-    let list: Img[] = [];
-    const per = 4;
-
-    try {
-      list = provider === "pexels" ? await fromPexels(q, per) : await fromUnsplash(q, per);
-    } catch {
-      // fallback: 반대 공급자로 한 번 더 시도
-      try {
-        list = provider === "pexels" ? await fromUnsplash(q, per) : await fromPexels(q, per);
-      } catch {
-        list = [];
-      }
-    }
-
-    return Response.json({ images: list.slice(0, 4) }, { status: 200 });
-  } catch (e: any) {
-    return Response.json({ error: e?.message || "image error" }, { status: 500 });
-  }
-}
-
-    // ---- MOCK (키 없거나 에러 시) ----
+    // 2) MOCK 응답 (쿼터 초과/키 없음/에러 시)
     const mock = {
       target_and_problem: {
         summary: "야외 러너의 호흡 건강과 쾌적한 러닝 환경 확보",
-        details: "도시 러너는 미세먼지/배기가스/꽃가루 등에 노출된다. 경량·착용성 미니 공기청정 웨어러블은 실질적/심리적 안전감을 제공."
+        details:
+          "도시 러너들은 미세먼지, 배기가스, 꽃가루 등 공기 오염에 지속적으로 노출된다. " +
+          "특히 새벽·야간 러닝 시 차량 통행량과 특정 구간의 공기질 문제로 불편과 불안감을 겪는다. " +
+          "휴대성과 착용성을 갖춘 미니 공기청정 웨어러블은 이러한 환경적 리스크를 줄이고, " +
+          "퍼포먼스 러너와 라이프스타일 러너 모두에게 심리적·실질적 안전감을 제공할 수 있다."
       },
       key_features: [
-        { name: "러닝 최적화 공기 정화 모듈", description: "호흡 방해 최소화, 경량 설계" },
-        { name: "착용감 중심 폼팩터", description: "흔들림/압박 최소 구조" },
-        { name: "실시간 공기질 피드백", description: "LED/앱 연동" },
-        { name: "생활 방수/내구성", description: "땀/비/야간 환경 대응" }
+        { name: "러닝 최적화 공기 정화 모듈", description: "운동 중 호흡을 방해하지 않는 수준으로 설계된 공기 정화 모듈" },
+        { name: "착용감 중심의 웨어러블 폼팩터", description: "흔들림이 적고 무게 중심이 안정적인 착용 구조" },
+        { name: "실시간 공기질 피드백", description: "LED 또는 앱으로 현재 공기질과 필터 교체 시점을 안내" },
+        { name: "생활 방수 및 내구성", description: "땀·비·야간 러닝 환경을 견딜 수 있는 생활 방수" }
       ],
       differentiation: [
-        { point: "러닝 특화", strategy: "운동 중 호흡/무게/움직임 기준 최적화" },
-        { point: "스타일+퍼포먼스", strategy: "스포츠웨어와 어울리는 디자인" },
-        { point: "심리적 안전감", strategy: "공기질 시각화로 통제감 제공" }
+        { point: "러닝 특화", strategy: "일반 마스크/공기청정기와 달리 러닝 상황에 최적화된 제품으로 포지셔닝" },
+        { point: "스타일과 퍼포먼스의 결합", strategy: "스포츠 브랜드와 협업 가능한 디자인 언어 제안" },
+        { point: "심리적 안전감", strategy: "데이터 기반 피드백으로 보이지 않는 위험을 시각화" }
       ],
       concept_and_references: {
-        concept_summary: "도시 러너를 위한 개인용 클린에어 버블.",
+        concept_summary:
+          "도시 러너를 위한 '개인용 클린에어 버블' 컨셉. 러닝 동작을 방해하지 않는 미니멀 디바이스로, " +
+          "퍼포먼스와 라이프스타일 사이에 위치하는 새로운 카테고리를 제안한다.",
         reference_keywords: [
           "running wearable device",
           "neckband air purifier",
           "minimal sport tech",
-          "urban night runner",
-          "LED indicator sports gear"
+          "urban night runner"
         ]
       },
       visual_rfp: {
-        project_title: "야외 러너용 미니 공기청정 웨어러블",
-        background: "도시 러닝 증가와 공기 오염 이슈 동시 증가",
-        objective: "착용 부담 최소+실질 정화+심리적 안심 제공",
-        target_users: "도시권 20–40대 러너",
-        core_requirements: ["경량/안정 착용","필터링","야간 시인성","필터 교체/충전","웨어와 매칭"],
-        design_direction: "슬림/유선형, 블랙·그레이 기반 포인트 컬러",
-        deliverables: ["컨셉보드","3D 렌더","치수/구조 다이어그램","LED/UI 플로우","네이밍안"]
+        project_title: "야외 러너를 위한 미니 공기청정 웨어러블 디바이스 디자인",
+        background: "도시 환경에서 러닝 인구 증가와 공기 오염에 대한 우려가 함께 커지고 있다.",
+        objective: "러닝 중 착용 부담을 최소화하면서 실질적인 공기 정화와 심리적 안심 효과를 제공하는 컨셉 도출",
+        target_users: "도시권 야외 러닝을 즐기는 20–40대 러너",
+        core_requirements: [
+          "러닝 동작을 방해하지 않는 착용 구조",
+          "미세먼지/오염물질 필터링 성능",
+          "야간 러닝에서도 어울리는 심플한 형태",
+          "교체 가능한 필터 및 충전 구조"
+        ],
+        design_direction:
+          "슬림하고 유선형의 실루엣, 블랙/딥그레이 베이스에 포인트 컬러. 러닝 웨어와 자연스럽게 통합되는 형태 탐색.",
+        deliverables: [
+          "제품 컨셉 보드",
+          "3D 제품 렌더링(착용 시나리오 포함)",
+          "기본 치수 및 구조 다이어그램",
+          "UI/LED 인디케이터 플로우",
+          "브랜드/네이밍 제안"
+        ]
       },
       double_diamond: {
-        overall_budget_time: {
-          total_budget_krw: "약 3천만~5천만원",
-          total_time_weeks: "약 10~16주",
-          ratio: { discover: "20%", define: "20%", develop: "40%", deliver: "20%" },
-          notes: "난이도/인증/양산 수량 따라 변동"
-        },
-        purpose_notes: {
-          discover: "문제/사용자 탐색",
-          define: "요구사항/성능/원가 확정",
-          develop: "설계/시작품/인증/양산 준비",
-          deliver: "양산/런칭/판매"
-        },
         discover: {
-          goals: ["문제/사용자 맥락 파악","경쟁/대체재 파악"],
+          goals: ["문제 맥락 파악", "타겟 러너 세분화"],
           tasks: [
             { title: "러닝 크루 인터뷰 5명", owner: "PM/리서처" },
-            { title: "경쟁 제품 스캔", owner: "PM/디자이너" }
+            { title: "경쟁/대체재 스캔", owner: "PM/디자이너" }
           ],
-          deliverables: ["인사이트 메모","경쟁 포지션 맵"]
+          deliverables: ["인사이트 메모", "경쟁 포지션 맵"]
         },
         define: {
-          goals: ["요구사항 고정","성능/원가 가드레일"],
+          goals: ["제품 요구사항 정의", "성능·원가 가드레일 설정"],
           tasks: [
-            { title: "PRD/요구사항 매트릭스", owner: "PM" },
-            { title: "핵심 성능 지표 합의", owner: "엔지니어/디자이너" }
+            { title: "요구사항 매트릭스 작성", owner: "PM" },
+            { title: "핵심 성능 지표 합의", owner: "PM/엔지니어/디자이너" }
           ],
-          deliverables: ["PRD v1","요구사항 매트릭스"]
+          deliverables: ["PRD v1", "요구사항 매트릭스"]
         },
         develop: {
-          goals: ["설계/시작품","인증·양산 준비"],
+          goals: ["시제품 설계·제작", "인증·양산 준비"],
           tasks: [
-            { title: "구조설계·부품 선정(BOM v1)", owner: "엔지니어" },
-            { title: "3D/CMF 목업", owner: "디자이너" },
-            { title: "인증 사전 검토", owner: "PM/엔지니어" }
+            { title: "구조 설계 및 부품 선정", owner: "엔지니어" },
+            { title: "3D/CMF 목업 제작", owner: "디자이너" }
           ],
-          deliverables: ["3D STEP","BOM v1","목업 사진","인증 체크리스트"]
+          deliverables: ["3D STEP", "BOM v1", "목업 사진"]
         },
         deliver: {
           goals: ["양산·런칭·판매"],
           tasks: [
-            { title: "금형/양산업체 RFQ·발주", owner: "PM/구매" },
-            { title: "패키지/라벨/매뉴얼", owner: "디자이너/MD" },
-            { title: "런칭 플랜(채널/가격/프로모션)", owner: "마케터" }
+            { title: "양산업체 RFQ 및 발주", owner: "PM/구매" },
+            { title: "패키지/라벨/매뉴얼 제작", owner: "디자이너/MD" },
+            { title: "런칭 플랜 수립", owner: "마케터" }
           ],
-          deliverables: ["PO·생산일정","패키지 파일","런칭 캘린더","커머스 세팅"]
+          deliverables: ["생산 일정", "패키지 파일", "런칭 캘린더"]
         }
       },
       experts_to_meet: [
-        { role: "제품 디자이너", why: "형태/사용성·CMF 결정" },
-        { role: "엔지니어(구조/전자)", why: "부품·BOM·안전성" },
-        { role: "양산업체/금형사", why: "DFM/원가·납기" },
-        { role: "마케터/MD", why: "채널 전략/가격/콘텐츠" },
-        { role: "인증 대행", why: "필요 인증 경로 안내" }
+        { role: "제품 디자이너",   why: "형태·사용성·착용감을 함께 설계하기 위해" },
+        { role: "엔지니어(구조/전자)", why: "부품 선정·전원·열·소음 등 기술 검토를 위해" },
+        { role: "양산업체/금형사",  why: "생산 가능성·원가·납기를 현실적으로 맞추기 위해" },
+        { role: "마케터/MD",      why: "시장 포지셔닝과 가격·채널 전략을 정리하기 위해" }
       ],
       expert_reviews: {
         pm: {
-          plain_summary: "전체 프로젝트의 일정·예산·리스크를 조율해 성공 확률을 높이는 역할입니다. 지금 아이디어는 시장 검증과 ‘최소 기능’의 범위를 잡는 게 핵심이에요.",
-          top_risks: ["수요 검증 부족","부품 리드타임 변동","범위 확대(스코프 크립)"],
-          next_actions: ["MVP 범위 한 줄로 정의","필수/선택 기능 구분","리스크 레지스터 작성"],
-          checklist: ["PRD v1","리스크 레지스터","주간 진행 표준(스탠드업)"],
-          famous_examples: ["GoPro: 최소 기능으로 시장 진입 후 확장","Slack: 내부툴에서 전환, 코어 가치 검증"]
+          risks: [
+            "실제 러너 대상 검증 없이 제품을 정의하면 수요가 약할 수 있습니다.",
+            "부품 리드타임과 인증 기간을 고려하지 않으면 런칭 일정이 밀릴 수 있습니다."
+          ],
+          asks: [
+            "초기에는 기능을 최소화한 MVP 범위를 먼저 정해 보세요.",
+            "주요 리스크(시장, 기술, 일정)를 리스트로 정리하고 우선순위를 매겨 보세요."
+          ],
+          checklist: [
+            "핵심 타겟과 사용 시나리오가 1페이지 안에 정리되어 있는가?",
+            "런칭 목표 시점과 예산 상·하한이 대략이라도 정해져 있는가?"
+          ]
         },
         designer: {
-          plain_summary: "사용자 경험을 쉬운 형태로 풀어 ‘누구나 편하게’ 쓰게 만드는 역할입니다.",
-          top_risks: ["착용감/무게로 인한 피로","페르소나 미스매치","야간 시인성 미흡"],
-          next_actions: ["핵심 시나리오(착용-러닝-휴식) 빠른 목업 검증","CMF 샘플 수집","야간 테스트 체크"],
-          checklist: ["핵심 사용자 플로우","인체 기준치 반영","간단한 사용성 테스트"],
-          famous_examples: ["Dyson: 인체공학·공기 흐름을 디자인 요소로","Apple Watch: 착용 감각과 UI의 통합"]
+          risks: [
+            "착용 부위와 무게 배분이 검증되지 않으면 실제 러닝 시 불편감이 클 수 있습니다.",
+            "시각적인 스타일만 고민하고, 세탁·보관·충전 같은 생활 맥락을 놓칠 수 있습니다."
+          ],
+          asks: [
+            "러닝 전·중·후의 사용 시나리오를 간단한 만화 형태로라도 그려 보세요.",
+            "실제 러닝 웨어 사진 위에 디바이스를 대략 합성해서 어울림을 확인해 보세요."
+          ],
+          checklist: [
+            "착용/탈착 동작이 3스텝 이내로 설명 가능한가?",
+            "러닝 중 흔들림을 줄이기 위한 고정 방식이 정의되어 있는가?"
+          ]
         },
         engineer: {
-          plain_summary: "안전·내구·배터리·소음 등 ‘성능과 안전’을 수치로 보장합니다.",
-          top_risks: ["열/소음/배터리","부품 단종(EOL)","인증 리스크"],
-          next_actions: ["예비 인증 문의","BOM v1 작성","DFM 체크로 원가/납기 확보"],
-          checklist: ["안전 규격 매핑","BOM v1","DFM 체크"],
-          famous_examples: ["Anker: 안정성·원가의 균형으로 신뢰 형성"]
+          risks: [
+            "배터리 용량·무게·안전 규격을 동시에 만족시키기 어려울 수 있습니다.",
+            "팬/모터 소음과 진동이 사용 경험을 해칠 수 있습니다."
+          ],
+          asks: [
+            "목표 사용 시간과 허용 가능한 무게 범위를 먼저 숫자로 잡아 보세요.",
+            "예상 사용 환경(비, 땀, 온도)을 정리하고 필요한 보호 등급을 추정해 보세요."
+          ],
+          checklist: [
+            "전원, 팬, 센서 등 주요 부품 리스트(BOM 초안)가 있는가?",
+            "국내 전기·전파 인증 필요 여부를 대략이라도 확인했는가?"
+          ]
         },
         marketer: {
-          plain_summary: "‘왜 이 제품이 필요한지’를 한 문장으로 설명하고, 알맞은 채널/가격을 찾습니다.",
-          top_risks: ["차별성 메시지 약함","가격 저항","채널 과소/과다"],
-          next_actions: ["포지셔닝 문장 A/B","초기 채널 1~2개 집중","리뷰·UGC 계획"],
-          checklist: ["런칭 메시지","채널별 수수료/마진","간단한 GA 이벤트"],
-          famous_examples: ["Oura Ring: 착용성·데이터 인사이트 강조","WHOOP: 특정 타깃(운동) 집중 후 확장"]
+          risks: [
+            "‘공기청정 웨어러블’이라는 개념이 처음인 고객에게 메시지가 어렵게 느껴질 수 있습니다.",
+            "가격이 러닝 액세서리 평균대보다 높으면 설득 포인트가 더 필요합니다."
+          ],
+          asks: [
+            "기존 러닝 기어(시계, 이어폰 등)와 어떻게 함께 쓰일지 한 줄로 설명해 보세요.",
+            "경쟁/유사 제품 3~5개의 가격과 리뷰 포인트를 표로 정리해 보세요."
+          ],
+          checklist: [
+            "이 제품이 없던 사람에게 ‘한 줄 설명’이 준비되어 있는가?",
+            "첫 런칭 채널(예: 크라우드펀딩, 자사몰, 스마트스토어)이 정해져 있는가?"
+          ]
         }
       }
     };
 
     return new Response(JSON.stringify(mock), {
-      status: 200, headers: { "Content-Type": "application/json" },
+      status: 200,
+      headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {
     console.error("최종 서버 오류:", err);
     return new Response(
-      JSON.stringify({ error: "서버 에러가 발생했습니다.", detail: err?.message || String(err) }),
+      JSON.stringify({
+        error: "서버 에러가 발생했습니다.",
+        detail: err?.message || String(err),
+      }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
-}
-// app/api/images/route.ts
-import { NextRequest } from "next/server";
-
-type Img = {
-  id: string;
-  thumb: string;
-  full: string;
-  alt: string;
-  author?: string;
-  link?: string;
-  source: "pexels" | "unsplash";
-};
-
-const PEXELS = process.env.PEXELS_API_KEY!;
-const UNSPLASH = process.env.UNSPLASH_ACCESS_KEY!; // server-side key
-
-async function fromPexels(q: string, per = 4): Promise<Img[]> {
-  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=${per}`;
-  const res = await fetch(url, { headers: { Authorization: PEXELS }, cache: "no-store" });
-  if (!res.ok) throw new Error("Pexels error");
-  const json = await res.json();
-  return (json.photos || []).map((p: any) => ({
-    id: String(p.id),
-    thumb: p.src.medium,
-    full: p.src.large2x || p.src.large,
-    alt: p.alt || q,
-    author: p.photographer,
-    link: p.url,
-    source: "pexels" as const,
-  }));
 }
