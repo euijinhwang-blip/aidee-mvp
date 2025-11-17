@@ -100,11 +100,28 @@ export async function POST(req: NextRequest) {
           : ""
       }
 
-      <hr />
-      <p style="font-size:12px;color:#777">
-        이 메일은 Aidee MVP에서 자동 생성되었습니다.
-      </p>
-    `;
+      <hr style="margin-top:24px;margin-bottom:16px;" />
+  <p style="font-size:14px;color:#555;">
+    ✏️ 마지막으로, 서비스 개선을 위해
+    <strong>30초 정도의 간단한 만족도 조사</strong>를 남겨주실 수 있을까요?
+  </p>
+  <p style="margin:8px 0 24px;">
+    <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZwwqFkVnfnpisVqqIhesE2VbFKTrA3gA1SuYAAn8zBitK4w/viewform?usp=header
+"
+       target="_blank"
+       style="
+         display:inline-block;
+         padding:10px 16px;
+         background:#111827;
+         color:#ffffff;
+         text-decoration:none;
+         border-radius:999px;
+         font-size:14px;
+       ">
+      만족도 조사 참여하기
+    </a>
+  </p>
+`;
 
     // 5) 메일 발송
     await resend.emails.send({
