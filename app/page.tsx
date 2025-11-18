@@ -185,7 +185,7 @@ export default function Home() {
 
         <p className="text-sm text-gray-600">
           제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면
-          문제 정의부터 디자인 컨셉 도출, 프로세스(안), 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
+          문제 정의부터 디자인 컨셉 도출, 수행프로세스, 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
         </p>
 
         {/* 아이디어 입력 */}
@@ -220,7 +220,7 @@ export default function Home() {
               <label className="block">
                 <span className="text-xs text-gray-600">희망 일정</span>
                 <select
-                  className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
+                  className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={timeline}
                   onChange={(e) => setTimeline(e.target.value)}
                 >
@@ -369,7 +369,7 @@ export default function Home() {
             </section>
 
             {/* ⑤ 디자인 및 사업화 프로세스(안) */}
-            <section className="md:col-span-2 space-y-3">
+            <section className="text-gray-600 md:col-span-2 space-y-3">
               <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
               <div className="text-gray-600grid md:grid-cols-4 gap-3">
                 <PhaseCard
