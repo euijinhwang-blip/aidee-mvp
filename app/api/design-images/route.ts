@@ -1,149 +1,113 @@
 // app/api/design-images/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
-// ====== RFP 타입 (필요한 필드만 간단히) ======
-type Phase = {
-  goals: string[];
-  tasks: { title: string; owner: string }[];
-  deliverables: string[];
-};
+const hasApiKey = !!process.env.OPENAI_API_KEY;
+const client = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
-type RFP = {
-  target_and_problem?: {
-    summary?: string;
-    details?: string;
-  };
-  key_features?: { name: string; description: string }[];
-  differentiation?: { point: string; strategy: string }[];
-  visual_rfp?: {
-    project_title?: string;
-    background?: string;
-    objective?: string;
-    target_users?: string;
-    core_requirements?: string[];
-    design_direction?: string;
-    deliverables?: string[];
-  };
-  double_diamond?: {
-    discover?: Phase;
-    define?: Phase;
-    develop?: Phase;
-    deliver?: Phase;
-  };
-};
+// 아이디어 + RFP에서 이미지용 프롬프트 뽑아내는 헬퍼
+function buildDesignPrompt(idea: string, rfp: any): string {
+  const parts: string[] = [];
 
-// ====== 프롬프트 빌더 ======
-function buildDesignPrompts(idea: string, rfp: RFP | null) {
-  const title =
-    rfp?.visual_rfp?.project_title?.trim() ||
-    rfp?.target_and_problem?.summary?.trim() ||
-    idea;
+  // 1) 기본 아이디어
+  parts.push(
+    `Industrial product design concept render, studio lighting, high-quality visualization.`
+  );
+  parts.push(`Core idea: ${idea}.`);
 
-  const targetUsers =
-    rfp?.visual_rfp?.target_users ||
-    "campers and outdoor enthusiasts";
+  // 2) RFP 요약 정보들
+  if (rfp?.visual_rfp?.project_title) {
+    parts.push(`Project title: ${rfp.visual_rfp.project_title}.`);
+  }
 
-  const keyFeatures = (rfp?.key_features || [])
-    .map((f) => f.name)
-    .filter(Boolean)
-    .join(", ");
+  if (rfp?.target_and_problem?.summary) {
+    parts.push(`Target & problem summary: ${rfp.target_and_problem.summary}.`);
+  }
 
-  const featureDetails = (rfp?.key_features || [])
-    .map((f) => `${f.name}: ${f.description}`)
-    .join("; ");
+  if (Array.isArray(rfp?.key_features) && rfp.key_features.length > 0) {
+    const feat = rfp.key_features
+      .map((f: any) => `${f.name}: ${f.description}`)
+      .join("; ");
+    parts.push(`Key features: ${feat}.`);
+  }
 
-  const requirements = (rfp?.visual_rfp?.core_requirements || []).join(", ");
-  const diffPoints = (rfp?.differentiation || [])
-    .map((d) => d.point)
-    .join(", ");
+  if (rfp?.visual_rfp?.design_direction) {
+    parts.push(
+      `Design direction (form, material, CMF, overall feel): ${rfp.visual_rfp.design_direction}.`
+    );
+  }
 
-  const designDirection = rfp?.visual_rfp?.design_direction || "";
-  const context = rfp?.target_and_problem?.details || "";
+  if (Array.isArray(rfp?.visual_rfp?.core_requirements)) {
+    parts.push(
+      `Must-have requirements: ${rfp.visual_rfp.core_requirements.join(", ")}.`
+    );
+  }
 
-  const mainPrompt = `
-Industrial design concept render of a "smart camping chair" product called "${title}".
-For target users: ${targetUsers}.
-Key features: ${keyFeatures || "portable, foldable, ergonomic, durable"}.
-Detailed features: ${featureDetails || "integrated smart functions for outdoor comfort"}.
-Core requirements: ${requirements || "lightweight, stable, comfortable for long sitting, easy to carry"}.
-Differentiation: ${diffPoints || "smarter and more comfortable than typical camping chairs"}.
-Design direction: ${designDirection || "modern, minimal, high-end outdoor gear feeling"}.
-Usage context: ${context}.
-Single chair on a neutral studio background, 3D product render, no people, no text, no logo, high detail, soft studio lighting.
-(Original Korean brief: ${idea})
-`.trim();
+  // 3) 이미지 스타일 가이드 (공통)
+  parts.push(
+    `Render style: clean minimal product shot, neutral background, slight perspective, soft shadows, 3D rendering, highly detailed, concept art for presentation.`
+  );
+  parts.push(
+    `Do not show text or UI mockups. Focus on the physical product itself.`
+  );
 
-  const lifestylePrompt = `
-Lifestyle render of people using the "${title}" smart camping chair around a camp site.
-Chair design follows: ${keyFeatures || "portable, foldable, ergonomic, durable"}, ${requirements}.
-Scene: cozy night camping, warm lights, tent and small table, focus on the chair design and how it is used.
-Photorealistic outdoor lighting, cinematic, high detail, minimal distraction from the chair design.
-(Original Korean brief: ${idea})
-`.trim();
-
-  return { mainPrompt, lifestylePrompt };
+  return parts.join(" ");
 }
 
-// ====== 메인 핸들러 ======
 export async function POST(req: NextRequest) {
   try {
+    if (!client) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY 환경변수가 설정되어 있지 않습니다." },
+        { status: 500 }
+      );
+    }
+
     const body = await req.json();
+    const idea: string | undefined = body?.idea;
+    const rfp: any = body?.rfp;
 
-    // ✅ 여기서 idea / rfp 를 꺼낸다
-    const idea: string = body?.idea || "";
-    const rfp: RFP | null = body?.rfp || null;
+    if (!idea || !rfp) {
+      return NextResponse.json(
+        { error: "idea와 rfp가 모두 필요합니다." },
+        { status: 400 }
+      );
+    }
 
-    // ✅ 프롬프트 생성
-    const { mainPrompt, lifestylePrompt } = buildDesignPrompts(idea, rfp);
+    // 1) 프롬프트 생성
+    const mainPrompt = buildDesignPrompt(idea, rfp);
 
-    // ---- 여기부터는 "이미지 API 호출" 부분: 너가 원래 쓰던 코드로 교체 ----
-    // 예: Together / KREA / 기타 모델
-    //
-    // const apiKey = process.env.TOGETHER_API_KEY;
-    // if (!apiKey) {
-    //   return NextResponse.json(
-    //     { error: "TOGETHER_API_KEY 환경변수가 없습니다." },
-    //     { status: 500 }
-    //   );
-    // }
-    //
-    // const response = await fetch("https://your-image-api-endpoint", {
-    //   method: "POST",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //     Authorization: `Bearer ${apiKey}`,
-    //   },
-    //   body: JSON.stringify({
-    //     prompt: mainPrompt,
-    //     n: 2,
-    //     // ... 기타 옵션
-    //   }),
-    // });
-    //
-    // if (!response.ok) {
-    //   const text = await response.text();
-    //   console.error("[design-images] API error:", text);
-    //   return NextResponse.json(
-    //     { error: "이미지 생성 API 오류", detail: text },
-    //     { status: 500 }
-    //   );
-    // }
-    //
-    // const json = await response.json();
-    // const imageUrls: string[] = (json.data ?? [])
-    //   .map((item: any) => item.url)
-    //   .filter((u: any) => typeof u === "string");
+    // 2) OpenAI 이미지 생성 호출
+    const result = await client.images.generate({
+      model: "gpt-image-1",
+      prompt: mainPrompt,
+      n: 2, // 1~2장 정도만
+      size: "1024x1024",
+    });
 
-    // 🔵 지금은 일단 프롬프트가 잘 만들어지는지만 확인할 수 있게 응답
+    // result.data 안에 url 들이 들어 있음
+    const urls =
+      (result as any)?.data
+        ?.map((img: any) => img.url)
+        .filter((u: string | null | undefined) => !!u) ?? [];
+
+    if (!urls.length) {
+      return NextResponse.json(
+        { error: "이미지 URL을 받지 못했습니다.", prompt: mainPrompt },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
-      prompt_main: mainPrompt,
-      prompt_lifestyle: lifestylePrompt,
-      // images: imageUrls,
+      images: urls,
+      prompt: mainPrompt,
     });
   } catch (err: any) {
-    console.error("[design-images] route error:", err);
+    console.error("design-images route error:", err);
     return NextResponse.json(
-      { error: err?.message || "서버 에러" },
+      {
+        error: err?.message || "이미지 생성 중 오류가 발생했습니다.",
+      },
       { status: 500 }
     );
   }
