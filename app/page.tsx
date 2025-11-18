@@ -77,6 +77,10 @@ function PhaseCard({ title, caption, phase }: { title: string; caption: string; 
 export default function Home() {
   const [idea, setIdea] = useState("");
   const [emailTo, setEmailTo] = useState("");
+    const [designImages, setDesignImages] = useState<string[]>([]);
+  const [designLoading, setDesignLoading] = useState(false);
+  const [designError, setDesignError] = useState("");
+
 
   // 설문 값들
   const [budget, setBudget] = useState("");
@@ -111,6 +115,10 @@ export default function Home() {
     setError("");
     setRfp(null);
     setEmailMsg("");
+
+    // 디자인 시안 관련 상태 초기화
+    setDesignImages([]);
+    setDesignError("");
 
     // 타이머 초기화
     if (timerRef.current) {
@@ -177,6 +185,31 @@ export default function Home() {
       setEmailMsg(e?.message || "이메일 전송 에러");
     }
   }
+
+  // 제품 디자인 이미지 생성
+  async function handleGenerateDesignImages() {
+    if (!rfp) return;
+    setDesignLoading(true);
+    setDesignError("");
+
+    try {
+      const res = await fetch("/api/design-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rfp }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "이미지 생성 실패");
+
+      setDesignImages(data.images || []);
+    } catch (e: any) {
+      setDesignError(e?.message || "이미지 생성 중 오류가 발생했습니다.");
+    } finally {
+      setDesignLoading(false);
+    }
+  }
+
 
   // 언마운트 시 타이머 정리
   useEffect(() => {
@@ -317,6 +350,13 @@ export default function Home() {
           >
             이메일로 받기
           </button>
+          <button
+            onClick={handleGenerateDesignImages}
+            disabled={!rfp || designLoading}
+            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
+          >
+            {designLoading ? "디자인 이미지 생성 중..." : "디자인 시안 생성하기"}
+          </button>
 
           {loading && (
             <span className="text-xs text-gray-500">
@@ -324,7 +364,10 @@ export default function Home() {
               초 경과
             </span>
           )}
-          {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
+           {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
+          {designError && (
+            <span className="text-sm text-red-500">{designError}</span>
+          )}
         </div>
 
         {error && <div className="text-red-500 text-sm">{error}</div>}
@@ -471,6 +514,30 @@ export default function Home() {
                 })}
               </div>
             </section>
+          
+            {/* ⑨ AI 생성 제품 디자인 시안 */}
+            {designImages.length > 0 && (
+              <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
+                <h2 className="font-semibold text-gray-600 mb-3">
+                  ⑨ AI 생성 제품 디자인 시안
+                </h2>
+                <div className="grid md:grid-cols-2 gap-4">
+                  {designImages.map((src, i) => (
+                    <figure key={i} className="space-y-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={src}
+                        alt={`AI design ${i + 1}`}
+                        className="w-full rounded-2xl border bg-gray-100 object-cover"
+                      />
+                      <figcaption className="text-xs text-gray-500">
+                        {i + 1}번 시안 – FLUX.1 Krea (Together API)
+                      </figcaption>
+                    </figure>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* ⑧ RFP 요약 (항상 마지막) */}
             <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">

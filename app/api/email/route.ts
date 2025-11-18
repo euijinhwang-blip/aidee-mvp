@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
 
     // 5) 메일 발송 + 에러 체크
     const { data, error } = await resend.emails.send({
-      from: "Aidee <onboarding@resend.dev>", // Resend 테스트 도메인
+      from: "Aidee <hello@aidee-studio.com>",
       to: recipients,
       subject: mailSubject,
       html,
