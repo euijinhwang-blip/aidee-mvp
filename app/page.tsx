@@ -3,7 +3,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type Phase = { goals: string[]; tasks: { title: string; owner: string }[]; deliverables: string[] };
+type Phase = {
+  goals: string[];
+  tasks: { title: string; owner: string }[];
+  deliverables: string[];
+};
 type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
 type RFP = {
   target_and_problem: { summary: string; details: string };
@@ -27,9 +31,10 @@ type RFP = {
 function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
   if (!phase) return null;
   return (
-    <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
+    <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2 h-full">
       <h3 className="font-semibold">{title}</h3>
       <p className="text-xs text-gray-500">{caption}</p>
+
       <div className="text-sm">
         <p className="mb-1">
           <strong>🎯 Goals</strong>
@@ -40,6 +45,7 @@ function PhaseCard({ title, caption, phase }: { title: string; caption: string; 
           ))}
         </ul>
       </div>
+
       {!!phase.tasks?.length && (
         <div className="text-sm">
           <p className="mb-1">
@@ -55,6 +61,7 @@ function PhaseCard({ title, caption, phase }: { title: string; caption: string; 
           </ul>
         </div>
       )}
+
       {!!phase.deliverables?.length && (
         <div className="text-sm">
           <p className="mb-1">
@@ -149,7 +156,7 @@ export default function Home() {
     }
   }
 
-  // 이메일 보내기 (기존 /api/email 사용)
+  // 이메일 보내기
   async function handleEmail() {
     if (!rfp || !emailTo) return;
     setEmailMsg("");
@@ -184,8 +191,8 @@ export default function Home() {
         <h1 className="text-3xl text-gray-600 font-semibold">Aidee: 제품디자인 기획안, 텍스트 한 줄로 완성</h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면
-          문제 정의부터 디자인 컨셉 도출, 수행프로세스, 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
+          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터 디자인 컨셉 도출, 수행프로세스,
+          전문가 가이드, RFP 요약까지 자동으로 정리합니다.
         </p>
 
         {/* 아이디어 입력 */}
@@ -368,18 +375,45 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑤ 디자인 및 사업화 프로세스(안) */}
+            {/* ⑤ 디자인 및 사업화 프로세스(안) – 가로 스크롤 버전 */}
             <section className="text-gray-600 md:col-span-2 space-y-3">
               <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
-              <div className="text-gray-600grid md:grid-cols-4 gap-3">
-                <PhaseCard
-                  title="Discover(탐색)"
-                  caption={processCaptions.discover}
-                  phase={rfp.double_diamond?.discover}
-                />
-                <PhaseCard title="Define(정의)" caption={processCaptions.define} phase={rfp.double_diamond?.define} />
-                <PhaseCard title="Develop(개발)" caption={processCaptions.develop} phase={rfp.double_diamond?.develop} />
-                <PhaseCard title="Deliver(배포)" caption={processCaptions.deliver} phase={rfp.double_diamond?.deliver} />
+              <p className="text-xs text-gray-500">
+                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로 흐르며 전체 여정을 한 번에 볼 수 있도록
+                정리했습니다. 카드들을 가로로 스크롤하면서 각 단계의 목표와 해야 할 일을 확인해 보세요.
+              </p>
+
+              <div className="mt-2 -mx-4 px-4 md:mx-0 md:px-0">
+                <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
+                  <div className="min-w-[260px] md:min-w-[280px] flex-shrink-0 snap-start">
+                    <PhaseCard
+                      title="1. Discover(탐색)"
+                      caption={processCaptions.discover}
+                      phase={rfp.double_diamond?.discover}
+                    />
+                  </div>
+                  <div className="min-w-[260px] md:min-w-[280px] flex-shrink-0 snap-start">
+                    <PhaseCard
+                      title="2. Define(정의)"
+                      caption={processCaptions.define}
+                      phase={rfp.double_diamond?.define}
+                    />
+                  </div>
+                  <div className="min-w-[260px] md:min-w-[280px] flex-shrink-0 snap-start">
+                    <PhaseCard
+                      title="3. Develop(개발)"
+                      caption={processCaptions.develop}
+                      phase={rfp.double_diamond?.develop}
+                    />
+                  </div>
+                  <div className="min-w-[260px] md:min-w-[280px] flex-shrink-0 snap-start">
+                    <PhaseCard
+                      title="4. Deliver(배포)"
+                      caption={processCaptions.deliver}
+                      phase={rfp.double_diamond?.deliver}
+                    />
+                  </div>
+                </div>
               </div>
             </section>
 
