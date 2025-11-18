@@ -181,7 +181,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-3xl font-semibold">제품디자인 기획안, 텍스트 한 줄로 완성</h1>
+        <h1 className="text-3xl text-gray-600 font-semibold">제품디자인 기획안, 텍스트 한 줄로 완성</h1>
 
         <p className="text-sm text-gray-600">
           제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면
@@ -190,7 +190,7 @@ export default function Home() {
 
         {/* 아이디어 입력 */}
         <textarea
-          className="w-full p-4 border rounded-lg bg-white"
+          className="w-full p-4 border rounded-lg bg-white text-gray-300"
           rows={3}
           placeholder='예: "야외 러너를 위한 미니 공기청정 웨어러블 디바이스"'
           value={idea}
@@ -199,13 +199,13 @@ export default function Home() {
 
         {/* 설문 영역 */}
         <section className="bg-white p-4 rounded-2xl shadow-sm space-y-3">
-          <h2 className="font-semibold mb-1 text-sm">간단 설문 · 예산/기간/시장 정보</h2>
+          <h2 className="font-semibold text-gray-600 mb-1 text-sm">간단 설문 · 예산/기간/시장 정보</h2>
           <div className="grid md:grid-cols-2 gap-3 text-sm">
             <div className="space-y-2">
               <label className="block">
                 <span className="text-xs text-gray-500">예산(총/개발)</span>
                 <select
-                  className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
+                  className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={budget}
                   onChange={(e) => setBudget(e.target.value)}
                 >
@@ -235,7 +235,7 @@ export default function Home() {
               <label className="block">
                 <span className="text-xs text-gray-500">타겟 시장/채널</span>
                 <input
-                  className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
+                  className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   placeholder="예: 국내 B2C, 북미 아마존, 국내 B2B 등"
                   value={targetMarket}
                   onChange={(e) => setTargetMarket(e.target.value)}
@@ -247,7 +247,7 @@ export default function Home() {
               <label className="block">
                 <span className="text-xs text-gray-500">우선순위</span>
                 <select
-                  className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
+                  className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
                 >
@@ -262,7 +262,7 @@ export default function Home() {
               <label className="block">
                 <span className="text-xs text-gray-500">리스크 허용도</span>
                 <select
-                  className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
+                  className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={riskTolerance}
                   onChange={(e) => setRiskTolerance(e.target.value)}
                 >
@@ -276,7 +276,7 @@ export default function Home() {
               <label className="block">
                 <span className="text-xs text-gray-500">규제/인증 이슈 (선택)</span>
                 <input
-                  className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
+                  className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   placeholder="예: 전기용품, 생활제품 위생, 의료기기 가능성 등"
                   value={regulationFocus}
                   onChange={(e) => setRegulationFocus(e.target.value)}
@@ -291,7 +291,7 @@ export default function Home() {
           <button
             onClick={handleGenerate}
             disabled={loading || !idea}
-            className="px-6 py-3 rounded-lg border bg-white disabled:opacity-50"
+            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
           >
             {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
           </button>
@@ -299,14 +299,14 @@ export default function Home() {
           <input
             type="email"
             placeholder="이메일 주소"
-            className="border rounded-lg px-3 py-2 bg-white"
+            className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
             value={emailTo}
             onChange={(e) => setEmailTo(e.target.value)}
           />
           <button
             onClick={handleEmail}
             disabled={!rfp || !emailTo}
-            className="px-4 py-2 rounded-lg border bg-white disabled:opacity-50"
+            className="px-4 text-gray-300 py-2 rounded-lg border bg-white disabled:opacity-50"
           >
             이메일로 받기
           </button>
@@ -326,15 +326,15 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-4 mt-6">
             {/* ① 목표 설정 및 문제 정의 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold mb-2">① 목표 설정 및 문제 정의</h2>
-              <p className="font-medium mb-1">{rfp.target_and_problem.summary}</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{rfp.target_and_problem.details}</p>
+              <h2 className="font-semibold text-gray-600 mb-2">① 목표 설정 및 문제 정의</h2>
+              <p className="font-medium text-gray-600 mb-1">{rfp.target_and_problem.summary}</p>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap">{rfp.target_and_problem.details}</p>
             </section>
 
             {/* ② 핵심 기능 제안 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold mb-2">② 핵심 기능 제안</h2>
-              <ul className="space-y-1 text-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">② 핵심 기능 제안</h2>
+              <ul className="space-y-1 text-gray-600 text-sm">
                 {rfp.key_features.map((f, i) => (
                   <li key={i}>
                     <strong>{f.name}</strong> — {f.description}
@@ -345,8 +345,8 @@ export default function Home() {
 
             {/* ③ 차별화 포인트 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold mb-2">③ 차별화 포인트 & 전략</h2>
-              <ul className="space-y-1 text-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">③ 차별화 포인트 & 전략</h2>
+              <ul className="space-y-1 text-gray-600 text-sm">
                 {rfp.differentiation.map((d, i) => (
                   <li key={i}>
                     <strong>{d.point}</strong>: {d.strategy}
@@ -356,9 +356,9 @@ export default function Home() {
             </section>
 
             {/* ④ 컨셉 & 레퍼런스 키워드 */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
-              <p className="text-sm mb-2">{rfp.concept_and_references.concept_summary}</p>
+            <section className="bg-white text-gray-600 p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
+              <p className="text-sm text-gray-600 mb-2">{rfp.concept_and_references.concept_summary}</p>
               <div className="flex flex-wrap gap-2 text-xs">
                 {rfp.concept_and_references.reference_keywords.map((k, i) => (
                   <span key={i} className="px-2 py-1 rounded-full border">
@@ -370,7 +370,7 @@ export default function Home() {
 
             {/* ⑤ 디자인 및 사업화 프로세스(안) */}
             <section className="md:col-span-2 space-y-3">
-              <h2 className="font-semibold">⑤ 디자인 및 사업화 프로세스(안)</h2>
+              <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
               <div className="grid md:grid-cols-4 gap-3">
                 <PhaseCard
                   title="Discover(탐색)"
@@ -384,8 +384,8 @@ export default function Home() {
             </section>
 
             {/* ⑥ 나의 협력 파트너 추천 */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑥ 나의 협력 파트너 추천</h2>
+            <section className="bg-white p-4 text-gray-600 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold text-gray-600 mb-2">⑥ 나의 협력 파트너 추천</h2>
               <ul className="flex flex-wrap gap-2">
                 {rfp.experts_to_meet?.map((e, i) => (
                   <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
@@ -397,9 +397,9 @@ export default function Home() {
             </section>
 
             {/* ⑦ 전문가 관점 리뷰 */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-3">⑦ 전문가 관점 리뷰</h2>
-              <div className="grid md:grid-cols-2 gap-3 text-sm">
+            <section className="bg-white p-4 text-gray-600 rounded-2xl shadow-sm md:col-span-2">
+              <h2 className="font-semibold text-gray-600 mb-3">⑦ 전문가 관점 리뷰</h2>
+              <div className="grid md:grid-cols-2 gap-3 text-gray-600 text-sm">
                 {["pm", "designer", "engineer", "marketer"].map((k) => {
                   const pack = (rfp.expert_reviews as any)?.[k];
                   if (!pack) return null;
@@ -439,9 +439,9 @@ export default function Home() {
             </section>
 
             {/* ⑧ RFP 요약 (항상 마지막) */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold mb-2">⑧ RFP 요약</h2>
-              <div className="text-sm space-y-1">
+            <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
+              <h2 className="font-semibold text-gray-600 mb-2">⑧ RFP 요약</h2>
+              <div className="text-sm text-gray-600 space-y-1">
                 <p>
                   <strong>프로젝트명:</strong> {rfp.visual_rfp.project_title}
                 </p>
