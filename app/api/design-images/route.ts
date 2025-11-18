@@ -15,7 +15,10 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const rfp = body?.rfp;
+ const idea: string = body?.idea || ""; 
+const rfp = body?.rfp || null;           // 이미 있다면 그대로 사용
+
+const { mainPrompt } = buildDesignPrompts(idea, rfp);
 
     if (!rfp || !rfp.visual_rfp) {
       return NextResponse.json(
