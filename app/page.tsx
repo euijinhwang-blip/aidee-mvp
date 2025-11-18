@@ -113,25 +113,39 @@ export default function Home() {
 const [designLoading, setDesignLoading] = useState(false);
 const [designError, setDesignError] = useState("");
 
-async function handleGenerateDesignImage() {
-  if (!rfp) return;
-  setDesignLoading(true);
+async function handleGenerateDesign() {
+  // 프론트에서도 1차 방어
+  if (!idea || !rfp) {
+    setDesignError("먼저 RFP를 생성해 주세요.");
+    return;
+  }
+
   setDesignError("");
+  setDesignLoading(true);
   setDesignImages([]);
 
   try {
-    const prompt = buildDesignPrompt(idea, rfp);
-
-    const res = await fetch("/api/design-image", {
+    const res = await fetch("/api/design-images", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }), // ✅ 핵심: idea 대신 prompt 전체를 보냄
+      body: JSON.stringify({ idea, rfp }),
     });
 
     const data = await res.json();
+
     if (!res.ok) {
       throw new Error(data?.error || "디자인 시안 생성 실패");
     }
+
+    setDesignImages(data.images || []);
+  } catch (e: any) {
+    console.error("design image error:", e);
+    setDesignError(e?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
+  } finally {
+    setDesignLoading(false);
+  }
+}
+
 
     // 서버에서 { images: string[] } 형태로 돌려준다고 가정
     setDesignImages(data.images || []);
@@ -389,54 +403,52 @@ async function handleGenerateDesignImage() {
 
         {/* 상단 버튼 + 진행상황 */}
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !idea}
-            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-          >
-            {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
-          </button>
+  <button
+    onClick={handleGenerate}
+    disabled={loading || !idea}
+    className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+  >
+    {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
+  </button>
 
-          <input
-            type="email"
-            placeholder="이메일 주소"
-            className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
-            value={emailTo}
-            onChange={(e) => setEmailTo(e.target.value)}
-          />
-          <button
-            onClick={handleEmail}
-            disabled={!rfp || !emailTo}
-            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
-          >
-            이메일로 받기
-          </button>
-          <button
-            onClick={handleGenerateDesignImages}
-            disabled={!rfp || designLoading}
-            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
-          >
-            {designLoading ? "디자인 이미지 생성 중..." : "디자인 시안 생성하기"}
-          </button>
-{/* 디자인 시안 생성 결과 출력 */}
+  {/* 이메일 입력 & 전송 버튼은 그대로 두고 */}
+
+  <button
+    onClick={handleGenerateDesign}
+    disabled={!rfp || designLoading}
+    className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+  >
+    {designLoading ? "디자인 시안 생성 중..." : "디자인 시안 생성하기"}
+  </button>
+</div>
+
+{/* ⑨ 디자인 시안 결과 */}
 {designError && (
-  <p className="text-red-500 text-sm mt-2">{designError}</p>
+  <p className="text-red-500 text-sm mt-4">{designError}</p>
 )}
 
 {designLoading && (
-  <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
+  <p className="text-sm text-gray-500 mt-4">디자인 시안 생성 중...</p>
 )}
 
 {!!designImages.length && (
-  <div className="mt-4 grid grid-cols-2 gap-3">
+  <div className="mt-4 grid md:grid-cols-2 gap-3">
     {designImages.map((url, i) => (
-      <div key={i} className="rounded-xl overflow-hidden border bg-white">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={`design-${i}`} className="w-full h-full object-cover" />
+      <div
+        key={i}
+        className="rounded-xl overflow-hidden border bg-white"
+      >
+        {/* ESLint next/image 경고 피하려면 그냥 img 사용 */}
+        <img
+          src={url}
+          alt={`design-${i}`}
+          className="w-full h-full object-cover"
+        />
       </div>
     ))}
   </div>
 )}
+
 
           {loading && (
             <span className="text-xs text-gray-500">
