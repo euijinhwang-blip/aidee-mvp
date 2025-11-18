@@ -190,7 +190,7 @@ export default function Home() {
 
         {/* 아이디어 입력 */}
         <textarea
-          className="w-full p-4 border rounded-lg bg-white text-gray-300"
+          className="w-full p-4 border rounded-lg bg-white text-gray-400"
           rows={3}
           placeholder='예: "야외 러너를 위한 미니 공기청정 웨어러블 디바이스"'
           value={idea}
