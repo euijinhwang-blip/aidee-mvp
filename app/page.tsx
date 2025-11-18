@@ -73,13 +73,74 @@ function PhaseCard({ title, caption, phase }: { title: string; caption: string; 
     </div>
   );
 }
+function buildDesignPrompt(idea: string, rfp: any) {
+  const features = (rfp?.key_features || [])
+    .map((f: any) => `${f.name}: ${f.description}`)
+    .join(", ");
+
+  const coreReqs = (rfp?.visual_rfp?.core_requirements || []).join(", ");
+
+  return [
+    // 기본 스타일 가이드
+    "high quality industrial design render of a product, studio lighting, soft shadows, 3d rendering, no people.",
+    "",
+    // 사용자가 입력한 아이디어
+    `Product idea: ${idea}`,
+    "",
+    // RFP 요약 정보들
+    rfp?.visual_rfp?.project_title && `Project title: ${rfp.visual_rfp.project_title}`,
+    rfp?.target_and_problem?.summary && `Target & problem: ${rfp.target_and_problem.summary}`,
+    rfp?.concept_and_references?.concept_summary &&
+      `Concept: ${rfp.concept_and_references.concept_summary}`,
+    features && `Key features: ${features}`,
+    coreReqs && `Core requirements: ${coreReqs}`,
+    rfp?.visual_rfp?.design_direction &&
+      `Design direction: ${rfp.visual_rfp.design_direction}`,
+    rfp?.visual_rfp?.target_users &&
+      `Target users: ${rfp.visual_rfp.target_users}`,
+    "",
+    // 캠핑의자 같은 타입을 더 명확히
+    "Focus on the product itself, full view of the chair, smart camping chair with visible structure and details.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 export default function Home() {
   const [idea, setIdea] = useState("");
   const [emailTo, setEmailTo] = useState("");
-    const [designImages, setDesignImages] = useState<string[]>([]);
-  const [designLoading, setDesignLoading] = useState(false);
-  const [designError, setDesignError] = useState("");
+ const [designImages, setDesignImages] = useState<string[]>([]);
+const [designLoading, setDesignLoading] = useState(false);
+const [designError, setDesignError] = useState("");
+
+async function handleGenerateDesignImage() {
+  if (!rfp) return;
+  setDesignLoading(true);
+  setDesignError("");
+  setDesignImages([]);
+
+  try {
+    const prompt = buildDesignPrompt(idea, rfp);
+
+    const res = await fetch("/api/design-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }), // ✅ 핵심: idea 대신 prompt 전체를 보냄
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "디자인 시안 생성 실패");
+    }
+
+    // 서버에서 { images: string[] } 형태로 돌려준다고 가정
+    setDesignImages(data.images || []);
+  } catch (err: any) {
+    setDesignError(err?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
+  } finally {
+    setDesignLoading(false);
+  }
+}
 
 
   // 설문 값들
@@ -357,6 +418,25 @@ export default function Home() {
           >
             {designLoading ? "디자인 이미지 생성 중..." : "디자인 시안 생성하기"}
           </button>
+{/* 디자인 시안 생성 결과 출력 */}
+{designError && (
+  <p className="text-red-500 text-sm mt-2">{designError}</p>
+)}
+
+{designLoading && (
+  <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
+)}
+
+{!!designImages.length && (
+  <div className="mt-4 grid grid-cols-2 gap-3">
+    {designImages.map((url, i) => (
+      <div key={i} className="rounded-xl overflow-hidden border bg-white">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={`design-${i}`} className="w-full h-full object-cover" />
+      </div>
+    ))}
+  </div>
+)}
 
           {loading && (
             <span className="text-xs text-gray-500">
