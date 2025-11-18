@@ -218,7 +218,7 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="text-xs text-gray-500">희망 일정</span>
+                <span className="text-xs text-gray-600">희망 일정</span>
                 <select
                   className="mt-1 w-full border rounded-lg px-3 py-2 bg-white"
                   value={timeline}
@@ -233,7 +233,7 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="text-xs text-gray-500">타겟 시장/채널</span>
+                <span className="text-xs text-gray-600">타겟 시장/채널</span>
                 <input
                   className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   placeholder="예: 국내 B2C, 북미 아마존, 국내 B2B 등"
@@ -245,7 +245,7 @@ export default function Home() {
 
             <div className="space-y-2">
               <label className="block">
-                <span className="text-xs text-gray-500">우선순위</span>
+                <span className="text-xs text-gray-600">우선순위</span>
                 <select
                   className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={priority}
@@ -260,7 +260,7 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="text-xs text-gray-500">리스크 허용도</span>
+                <span className="text-xs text-gray-600">리스크 허용도</span>
                 <select
                   className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={riskTolerance}
@@ -306,7 +306,7 @@ export default function Home() {
           <button
             onClick={handleEmail}
             disabled={!rfp || !emailTo}
-            className="px-4 text-gray-300 py-2 rounded-lg border bg-white disabled:opacity-50"
+            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
           >
             이메일로 받기
           </button>
@@ -371,7 +371,7 @@ export default function Home() {
             {/* ⑤ 디자인 및 사업화 프로세스(안) */}
             <section className="md:col-span-2 space-y-3">
               <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
-              <div className="grid md:grid-cols-4 gap-3">
+              <div className="text-gray-600grid md:grid-cols-4 gap-3">
                 <PhaseCard
                   title="Discover(탐색)"
                   caption={processCaptions.discover}
