@@ -2,12 +2,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY || "");
+const resendApiKey = process.env.RESEND_API_KEY || "";
+const resend = new Resend(resendApiKey);
+
+// 만족도 조사 링크 (환경변수 없으면 기본 Google Form 사용)
+const SURVEY_URL =
+  process.env.NEXT_PUBLIC_SURVEY_URL ||
+  "https://docs.google.com/forms/d/e/1FAIpQLSdZwwqFkVnfnpisVqqIhesE2VbFKTrA3gA1SuYAAn8zBitK4w/viewform?usp=header";
 
 export async function POST(req: NextRequest) {
   try {
     // 1) 환경변수 체크
     if (!process.env.RESEND_API_KEY) {
+      console.error("[Email] RESEND_API_KEY is missing");
       return NextResponse.json(
         { error: "RESEND_API_KEY 환경변수가 없습니다." },
         { status: 500 }
@@ -17,36 +24,61 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { to, subject, rfp, images } = body;
 
-    if (!to || typeof to !== "string") {
+    // 2) 수신자(to) 전처리: string | string[] 둘 다 허용 + 공백/콤마 정리
+    let recipients: string[] = [];
+
+    if (typeof to === "string") {
+      recipients = to
+        .split(/[;,]/) // 콤마나 세미콜론으로 여러 개 입력해도 되도록
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+    } else if (Array.isArray(to)) {
+      recipients = to
+        .map((item) => String(item).trim())
+        .filter((item) => item.length > 0);
+    }
+
+    if (!recipients.length) {
       return NextResponse.json(
-        { error: "수신 이메일(to)이 비어 있습니다." },
+        { error: "수신 이메일(to)이 비어 있거나 형식이 올바르지 않습니다." },
         { status: 400 }
       );
     }
 
-    // 2) 메일 제목
     const mailSubject =
       subject || "Aidee · 비주얼 RFP & 프로세스(안) 결과 요약";
 
     // 3) RFP가 없을 때 대비
     if (!rfp) {
-      await resend.emails.send({
-        from: "Aidee <onboarding@resend.dev>", // Testing 도메인
-        to,
+      const { data, error } = await resend.emails.send({
+        from: "Aidee <onboarding@resend.dev>", // 테스트 도메인
+        to: recipients,
         subject: mailSubject,
         html: `<p>RFP 데이터가 전달되지 않았습니다. 다시 한 번 시도해 주세요.</p>`,
       });
 
-      return NextResponse.json({ ok: true });
+      if (error) {
+        console.error("[Email] Resend error (no RFP):", error);
+        return NextResponse.json(
+          { error: error.message || "이메일 전송 중 오류가 발생했습니다." },
+          { status: 500 }
+        );
+      }
+
+      console.log("[Email] sent without RFP:", {
+        id: data?.id,
+        to: recipients,
+      });
+      return NextResponse.json({ ok: true, id: data?.id });
     }
 
-    // 4) 간단한 HTML 본문 만들기 (너무 길지 않게 요약)
+    // 4) 간단한 HTML 본문 만들기 (요약)
     const imgList = Array.isArray(images)
       ? images
           .slice(0, 4)
           .map(
             (im: any) =>
-              `<li><a href="${im.full || im.link}" target="_blank">${im.alt || im.full}</a></li>`
+              `<li><a href="${im.full || im.link}" target="_blank" rel="noreferrer">${im.alt || im.full}</a></li>`
           )
           .join("")
       : "";
@@ -101,40 +133,52 @@ export async function POST(req: NextRequest) {
       }
 
       <hr style="margin-top:24px;margin-bottom:16px;" />
-  <p style="font-size:14px;color:#555;">
-    ✏️ 마지막으로, 서비스 개선을 위해
-    <strong>30초 정도의 간단한 만족도 조사</strong>를 남겨주실 수 있을까요?
-  </p>
-  <p style="margin:8px 0 24px;">
-    <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZwwqFkVnfnpisVqqIhesE2VbFKTrA3gA1SuYAAn8zBitK4w/viewform?usp=header
-"
-       target="_blank"
-       style="
-         display:inline-block;
-         padding:10px 16px;
-         background:#111827;
-         color:#ffffff;
-         text-decoration:none;
-         border-radius:999px;
-         font-size:14px;
-       ">
-      만족도 조사 참여하기
-    </a>
-  </p>
-`;
+      <p style="font-size:14px;color:#555;">
+        ✏️ 마지막으로, 서비스 개선을 위해
+        <strong>30초 정도의 간단한 만족도 조사</strong>를 남겨주실 수 있을까요?
+      </p>
+      <p style="margin:8px 0 24px;">
+        <a href="${SURVEY_URL}"
+           target="_blank"
+           rel="noreferrer"
+           style="
+             display:inline-block;
+             padding:10px 16px;
+             background:#111827;
+             color:#ffffff;
+             text-decoration:none;
+             border-radius:999px;
+             font-size:14px;
+           ">
+          만족도 조사 참여하기
+        </a>
+      </p>
+    `;
 
-    // 5) 메일 발송
-    await resend.emails.send({
-      from: "Aidee <onboarding@resend.dev>", // Resend Testing Domain
-      to,
+    // 5) 메일 발송 + 에러 체크
+    const { data, error } = await resend.emails.send({
+      from: "Aidee <onboarding@resend.dev>", // Resend 테스트 도메인
+      to: recipients,
       subject: mailSubject,
       html,
     });
 
-    // result.id 를 굳이 쓰지 않고, 타입 에러도 피함
-    return NextResponse.json({ ok: true });
+    if (error) {
+      console.error("[Email] Resend error:", error);
+      return NextResponse.json(
+        { error: error.message || "이메일 전송 중 오류가 발생했습니다." },
+        { status: 500 }
+      );
+    }
+
+    console.log("[Email] sent successfully:", {
+      id: data?.id,
+      to: recipients,
+    });
+
+    return NextResponse.json({ ok: true, id: data?.id });
   } catch (err: any) {
-    console.error("Email route error:", err);
+    console.error("Email route error (unexpected):", err);
     return NextResponse.json(
       { error: err?.message || "이메일 전송 중 오류가 발생했습니다." },
       { status: 500 }
