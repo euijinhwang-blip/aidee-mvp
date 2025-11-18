@@ -181,7 +181,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-3xl text-gray-600 font-semibold">제품디자인 기획안, 텍스트 한 줄로 완성</h1>
+        <h1 className="text-3xl text-gray-600 font-semibold">Aidee: 제품디자인 기획안, 텍스트 한 줄로 완성</h1>
 
         <p className="text-sm text-gray-600">
           제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면
@@ -203,7 +203,7 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-3 text-sm">
             <div className="space-y-2">
               <label className="block">
-                <span className="text-xs text-gray-500">예산(총/개발)</span>
+                <span className="text-xs text-gray-600">예산(총/개발)</span>
                 <select
                   className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   value={budget}
@@ -274,7 +274,7 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="text-xs text-gray-500">규제/인증 이슈 (선택)</span>
+                <span className="text-xs text-gray-600">규제/인증 이슈 (선택)</span>
                 <input
                   className="mt-1 w-full text-gray-300 border rounded-lg px-3 py-2 bg-white"
                   placeholder="예: 전기용품, 생활제품 위생, 의료기기 가능성 등"
