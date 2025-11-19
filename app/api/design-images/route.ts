@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
 const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
-const MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free";
+const MODEL_NAME = "black-forest-labs/FLUX.1-schnell";
+
 
 // metrics 테이블에 기록 (type / count / meta)
 async function logMetric(
