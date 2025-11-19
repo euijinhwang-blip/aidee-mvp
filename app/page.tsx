@@ -29,6 +29,10 @@ type RFP = {
   experts_to_meet?: { role: string; why: string }[];
   expert_reviews?: { pm: ExpertPack; designer: ExpertPack; engineer: ExpertPack; marketer: ExpertPack };
 };
+  // 페이지 최초 방문 기록
+  useEffect(() => {
+    fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
+  }, []);
 
 function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
   if (!phase) return null;
@@ -118,6 +122,15 @@ export default function Home() {
     setError("");
     setRfp(null);
     setEmailMsg("");
+// RFP 생성 완료 후 기록
+await fetch("/api/metrics/rfp", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    idea,
+    meta: { survey },
+  }),
+});
 
     // 디자인 시안 초기화
     setDesignImages([]);
@@ -198,6 +211,15 @@ export default function Home() {
       setEmailMsg(e?.message || "이메일 전송 중 오류가 발생했습니다.");
     }
   }
+await fetch("/api/metrics/email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: emailTo,
+    meta: { rfpId: rfp?.id },
+  }),
+});
+
 
   // 제품 디자인 이미지 생성 (/api/design-images)
   async function handleGenerateDesign() {
@@ -228,6 +250,16 @@ export default function Home() {
       setDesignLoading(false);
     }
   }
+await fetch("/api/metrics/design", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    count: data.images.length,
+    model: "flux-1-krea",
+    meta: { idea },
+  }),
+});
+
 
   // 언마운트 시 타이머 정리
   useEffect(() => {
