@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
 const MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free";
 
-// metrics 테이블에 기록 (type / count / meta 구조)
+// metrics 테이블에 기록 (type / count / meta)
 async function logMetric(
   type: string,
   meta: Record<string, any> = {},
@@ -26,48 +26,17 @@ async function logMetric(
 }
 
 /**
- * RFP + 아이디어를 기반으로 이미지용 프롬프트 만들기
- * (아이디어 + 레퍼런스 키워드 + 핵심 기능 + 디자인 방향 등 포함)
+ * RFP의 "목표 설정 및 문제 정의" 텍스트만 추출
+ * (summary + details 를 단순 결합)
  */
-function buildDesignPrompt(idea: string, rfp: any): string {
-  const projectTitle = rfp?.visual_rfp?.project_title || "";
-  const targetUsers = rfp?.visual_rfp?.target_users || "";
-  const concept = rfp?.concept_and_references?.concept_summary || "";
-  const designDir = rfp?.visual_rfp?.design_direction || "";
-  const coreReq = (rfp?.visual_rfp?.core_requirements || []).join(", ");
+function extractTargetProblemText(rfp: any): string {
+  const summary = rfp?.target_and_problem?.summary ?? "";
+  const details = rfp?.target_and_problem?.details ?? "";
 
-  const keyFeatures = (rfp?.key_features || [])
-    .map((f: any) => f?.name)
-    .filter(Boolean)
-    .join(", ");
+  const combined = [summary, details].filter(Boolean).join("\n");
 
-  const diffPoints = (rfp?.differentiation || [])
-    .map((d: any) => d?.point)
-    .filter(Boolean)
-    .join(", ");
-
-  const refKeywords = (rfp?.concept_and_references?.reference_keywords || []).join(
-    ", "
-  );
-
-  const lines = [
-    // 기본 렌더링 스타일
-    "industrial product design, high-quality studio render, 3d product shot, realistic lighting",
-    projectTitle && `product name: ${projectTitle}`,
-    `product idea: ${idea}`,
-    targetUsers && `target users: ${targetUsers}`,
-    concept && `concept: ${concept}`,
-    keyFeatures && `core functional features: ${keyFeatures}`,
-    diffPoints && `differentiation points: ${diffPoints}`,
-    coreReq && `requirements: ${coreReq}`,
-    designDir && `design direction: ${designDir}`,
-    refKeywords && `reference style keywords: ${refKeywords}`,
-    // 네가 원하는 전체적인 스타일 가이드
-    "plain background, no text, no logo, centered single product, high detail, cinematic studio lighting, concept design visualization",
-  ].filter(Boolean);
-
-  // 한 줄짜리 프롬프트로 합치기
-  return lines.join(". ");
+  // 완전히 비어있으면 fallback
+  return combined || "Product design concept";
 }
 
 export async function POST(req: NextRequest) {
@@ -82,16 +51,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const idea: string = body?.idea;
+    const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
 
-    if (!idea || typeof idea !== "string") {
-      return NextResponse.json(
-        { error: "아이디어가 비어 있습니다." },
-        { status: 400 }
-      );
-    }
-
+    // 프론트에서 이미 idea와 rfp를 보낸다고 가정하지만,
+    // 여기서는 rfp가 핵심이므로 rfp만은 반드시 필요
     if (!rfp) {
       return NextResponse.json(
         { error: "RFP 데이터가 없습니다. 먼저 RFP를 생성해 주세요." },
@@ -99,8 +63,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ 아이디어 + RFP 기반 프롬프트 생성
-    const prompt = buildDesignPrompt(idea, rfp);
+    // ✅ RFP의 '목표 설정 및 문제 정의' 부분만 프롬프트로 사용
+    const prompt = extractTargetProblemText(rfp);
 
     // Together 이미지 생성 요청
     const response = await fetch(TOGETHER_URL, {
@@ -111,12 +75,12 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: MODEL_NAME,
-        prompt,
+        prompt,          // 여기서 오직 target_and_problem 텍스트만 사용
         width: 1024,
         height: 1024,
         steps: 4,
-        n: 2, // 1~2장만 생성
-        response_format: "b64_json", // base64 포맷
+        n: 2,            // 1~2장만 생성
+        response_format: "b64_json",
       }),
     });
 
@@ -129,7 +93,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Together 측 응답 포맷은 두 가지 가능성 처리
+    // Together 응답 포맷 처리
     const images: string[] = [];
 
     // 1) { output: ["data:image/png;base64,...", ...] } 형식
@@ -165,13 +129,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ 디자인 생성 메트릭 기록 (metrics 테이블)
+    // ✅ 디자인 생성 메트릭 기록
     await logMetric(
       "design",
       {
         model: "flux-1-krea",
         rfpId: rfp?.id ?? null,
-        idea,
+        idea: idea ?? null,
+        promptSource: "target_and_problem_only",
       },
       images.length
     );
