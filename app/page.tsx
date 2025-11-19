@@ -12,7 +12,8 @@ type Phase = {
 type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
 
 type RFP = {
-  target_and_problem: { summary: string; details: string };
+    id: string;   
+    target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
   concept_and_references: { concept_summary: string; reference_keywords: string[] };
@@ -128,7 +129,7 @@ await fetch("/api/metrics/rfp", {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     idea,
-    meta: { survey },
+   meta: { survey: true },
   }),
 });
 
@@ -211,14 +212,14 @@ await fetch("/api/metrics/rfp", {
       setEmailMsg(e?.message || "이메일 전송 중 오류가 발생했습니다.");
     }
   }
-await fetch("/api/metrics/email", {
+async function sendEmailMetric() {await fetch("/api/metrics/email", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     to: emailTo,
     meta: { rfpId: rfp?.id },
   }),
-});
+})};
 
 
   // 제품 디자인 이미지 생성 (/api/design-images)
@@ -250,15 +251,15 @@ await fetch("/api/metrics/email", {
       setDesignLoading(false);
     }
   }
-await fetch("/api/metrics/design", {
+async function sendDesignMetric() {await fetch("/api/metrics/design", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    count: data.images.length,
+    count: designImages.length,
     model: "flux-1-krea",
     meta: { idea },
   }),
-});
+})};
 
 
   // 언마운트 시 타이머 정리
