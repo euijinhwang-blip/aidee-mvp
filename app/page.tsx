@@ -12,8 +12,8 @@ type Phase = {
 type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
 
 type RFP = {
-    id: string;   
-    target_and_problem: { summary: string; details: string };
+  id: string;
+  target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
   concept_and_references: { concept_summary: string; reference_keywords: string[] };
@@ -30,10 +30,6 @@ type RFP = {
   experts_to_meet?: { role: string; why: string }[];
   expert_reviews?: { pm: ExpertPack; designer: ExpertPack; engineer: ExpertPack; marketer: ExpertPack };
 };
-  // 페이지 최초 방문 기록
-  useEffect(() => {
-    fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
-  }, []);
 
 function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
   if (!phase) return null;
@@ -117,21 +113,27 @@ export default function Home() {
     []
   );
 
+  // ✅ 페이지 최초 방문 기록 (컴포넌트 안으로 이동)
+  useEffect(() => {
+    fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
+  }, []);
+
   // RFP 생성
   async function handleGenerate() {
     setLoading(true);
     setError("");
     setRfp(null);
     setEmailMsg("");
-// RFP 생성 완료 후 기록
-await fetch("/api/metrics/rfp", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    idea,
-   meta: { survey: true },
-  }),
-});
+
+    // RFP 생성 완료 후 기록
+    await fetch("/api/metrics/rfp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idea,
+        meta: { survey: true },
+      }),
+    });
 
     // 디자인 시안 초기화
     setDesignImages([]);
@@ -212,15 +214,17 @@ await fetch("/api/metrics/rfp", {
       setEmailMsg(e?.message || "이메일 전송 중 오류가 발생했습니다.");
     }
   }
-async function sendEmailMetric() {await fetch("/api/metrics/email", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    to: emailTo,
-    meta: { rfpId: rfp?.id },
-  }),
-})};
 
+  async function sendEmailMetric() {
+    await fetch("/api/metrics/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: emailTo,
+        meta: { rfpId: rfp?.id },
+      }),
+    });
+  }
 
   // 제품 디자인 이미지 생성 (/api/design-images)
   async function handleGenerateDesign() {
@@ -251,16 +255,18 @@ async function sendEmailMetric() {await fetch("/api/metrics/email", {
       setDesignLoading(false);
     }
   }
-async function sendDesignMetric() {await fetch("/api/metrics/design", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    count: designImages.length,
-    model: "flux-1-krea",
-    meta: { idea },
-  }),
-})};
 
+  async function sendDesignMetric() {
+    await fetch("/api/metrics/design", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        count: designImages.length,
+        model: "flux-1-krea",
+        meta: { idea },
+      }),
+    });
+  }
 
   // 언마운트 시 타이머 정리
   useEffect(() => {
@@ -422,13 +428,9 @@ async function sendDesignMetric() {await fetch("/api/metrics/design", {
           {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
         </div>
 
-        {/* 시안 생성 에러/로딩 메시지 (버튼 아래 간단 표기) */}
-        {designError && (
-          <p className="text-red-500 text-sm mt-2">{designError}</p>
-        )}
-        {designLoading && (
-          <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
-        )}
+        {/* 시안 생성 에러/로딩 메시지 */}
+        {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
+        {designLoading && <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>}
 
         {error && <div className="text-red-500 text-sm">{error}</div>}
 
@@ -482,7 +484,7 @@ async function sendDesignMetric() {await fetch("/api/metrics/design", {
               </div>
             </section>
 
-            {/* ⑤ 디자인 및 사업화 프로세스(안) – 가로 스크롤 버전 */}
+            {/* ⑤ 디자인 및 사업화 프로세스(안) */}
             <section className="text-gray-600 md:col-span-2 space-y-3">
               <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
               <p className="text-xs text-gray-500">
@@ -580,7 +582,7 @@ async function sendDesignMetric() {await fetch("/api/metrics/design", {
               </div>
             </section>
 
-            {/* ⑧ RFP 요약 (항상 마지막 전) */}
+            {/* ⑧ RFP 요약 */}
             <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
               <h2 className="font-semibold text-gray-600 mb-2">⑧ RFP 요약</h2>
               <div className="text-sm text-gray-600 space-y-1">
@@ -610,7 +612,7 @@ async function sendDesignMetric() {await fetch("/api/metrics/design", {
               </div>
             </section>
 
-            {/* ⑨ AI 생성 제품 디자인 시안 – 여기서 이미지 렌더링 */}
+            {/* ⑨ AI 생성 제품 디자인 시안 */}
             {(designError || designLoading || designImages.length > 0) && (
               <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
                 <h2 className="font-semibold text-gray-600 mb-2">
