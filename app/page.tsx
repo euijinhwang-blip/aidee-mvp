@@ -90,7 +90,7 @@ export default function Home() {
 
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<any>(null); // 👈 문자열/객체 모두 허용
   const [emailMsg, setEmailMsg] = useState("");
 
   // 진행 시간(초)
@@ -120,7 +120,7 @@ export default function Home() {
   // RFP 생성
   async function handleGenerate() {
     setLoading(true);
-    setError("");
+    setError(null);
     setRfp(null);
     setEmailMsg("");
 
@@ -184,7 +184,12 @@ export default function Home() {
         }),
       });
     } catch (e: any) {
-      setError(e?.message || "네트워크 오류");
+      console.error("RFP generate error:", e);
+      const msg =
+        typeof e === "string"
+          ? e
+          : e?.message || e?.error || e?.detail || "네트워크 오류";
+      setError(msg);
     } finally {
       setLoading(false);
       if (timerRef.current) {
@@ -439,7 +444,11 @@ export default function Home() {
         {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
         {designLoading && <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>}
 
-        {error && <div className="text-red-500 text-sm">{error}</div>}
+        {error && (
+          <div className="text-red-500 text-sm">
+            {typeof error === "string" ? error : JSON.stringify(error)}
+          </div>
+        )}
 
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
