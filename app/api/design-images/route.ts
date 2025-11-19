@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
 const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
+// ✅ -Free 제거: 현재 Together에서 권장하는 모델 이름
 const MODEL_NAME = "black-forest-labs/FLUX.1-schnell";
 
-
+// ─────────────────────────────────────────────
 // metrics 테이블에 기록 (type / count / meta)
+// ─────────────────────────────────────────────
 async function logMetric(
   type: string,
   meta: Record<string, any> = {},
@@ -22,58 +24,73 @@ async function logMetric(
       console.error("[Supabase] metrics insert error:", error);
     }
   } catch (e) {
-    console.error("[Supabase] metrics unexpected error:", e);
+    // supabase 설정 문제로 실패하더라도 메인 기능은 막지 않기
+    console.error("[Supabase] unexpected insert error:", e);
   }
 }
 
-/**
- * RFP의 "목표 설정 및 문제 정의"를 제품 설명용 텍스트로 추출
- * - 너무 길면 모델이 흐려지니 앞부분만 200자 정도 사용
- */
+// ─────────────────────────────────────────────
+// RFP에서 제품 설명 텍스트 추출
+//  - 목표설정/문제정의(summary + details) 기준
+//  - 너무 길면 앞부분만 사용
+// ─────────────────────────────────────────────
 function extractProblemSnippet(rfp: any): string {
   const summary = (rfp?.target_and_problem?.summary ?? "").trim();
   const details = (rfp?.target_and_problem?.details ?? "").trim();
-
   let combined = [summary, details].filter(Boolean).join(" ");
+
   if (!combined) return "";
 
-  // 너무 길면 앞부분만 사용
-  if (combined.length > 200) {
-    combined = combined.slice(0, 200) + "...";
+  // 너무 길면 앞부분만 사용 (모델이 핵심만 잡도록)
+  const MAX_LEN = 220;
+  if (combined.length > MAX_LEN) {
+    combined = combined.slice(0, MAX_LEN) + "...";
   }
   return combined;
 }
 
-/**
- * 최종 제품 디자인용 프롬프트
- * - 영어로 "이건 물건이다, 사람은 나오지 마라"를 강하게 명시
- * - RFP 문제정의는 "어떤 문제를 해결하는 제품인지" 설명으로만 사용
- */
-function buildProductPrompt(rfp: any): string {
-  const problemSnippet = extractProblemSnippet(rfp);
+// ─────────────────────────────────────────────
+// 최종 제품 디자인용 프롬프트 생성
+//  - 사람/배경이 아니라 "제품 렌더" 쪽으로 강하게 유도
+// ─────────────────────────────────────────────
+function buildDesignPrompt(idea: string, rfp: any): string {
+  const problem = extractProblemSnippet(rfp);
 
-  // 제품이 어떤 카테고리인지 대략 유추 (없으면 'device'로)
-  // 필요하면 나중에 RFP 스키마에 category 추가해서 더 정확히 쓸 수 있음
-  const roughCategory =
-    rfp?.visual_rfp?.project_title?.toLowerCase().includes("wearable")
-      ? "wearable device"
-      : "physical product";
+  // 프로젝트명에서 대략적인 카테고리 추정 (없으면 device)
+  const title: string = rfp?.visual_rfp?.project_title ?? "";
+  const lowerTitle = title.toLowerCase();
+
+  let category = "physical product";
+  if (lowerTitle.includes("wearable") || lowerTitle.includes("band")) {
+    category = "wearable device";
+  } else if (lowerTitle.includes("chair") || lowerTitle.includes("의자")) {
+    category = "chair";
+  } else if (lowerTitle.includes("lamp") || lowerTitle.includes("조명")) {
+    category = "lighting product";
+  }
 
   const lines = [
-    // 1. 이건 "제품 콘셉트 렌더"라는 걸 먼저 못 박기
-    `High-quality industrial ${roughCategory} design render, 3D product visualization, studio lighting, clean background.`,
-    // 2. 어떤 문제를 해결하는 제품인지 (RFP 목표/문제정의에서 온 내용)
-    problemSnippet &&
-      `Design a ${roughCategory} that solves the following problem: ${problemSnippet}`,
-    // 3. 사람/장면을 막는 네거티브 가이드
+    // 1) 이건 제품 렌더다
+    `High-quality industrial ${category} design render, 3D product visualization, studio lighting, clean background.`,
+    // 2) 아이디어 한 줄
+    idea && `Product idea: ${idea}`,
+    // 3) 어떤 문제를 해결하는지 (RFP 기반)
+    problem && `The product is designed to solve the following problem: ${problem}`,
+    // 4) 네거티브 가이드
     "Focus only on the product itself, isolated object shot.",
-    "No people, no human body, no faces, no hands, no text, no logo, no UI screenshots.",
+    "No people, no human body, no faces, no hands, no crowd, no environment scene.",
+    "No text, no UI screenshot, no logo, no watermark.",
     "Plain neutral background, centered product, photorealistic materials, detailed industrial design concept.",
   ].filter(Boolean);
 
   return lines.join(" ");
 }
 
+// ─────────────────────────────────────────────
+// POST /api/design-images
+//  - body: { idea: string, rfp: any }
+//  - response: { images: string[] } (data:image/png;base64,...)
+// ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.TOGETHER_API_KEY;
@@ -89,6 +106,13 @@ export async function POST(req: NextRequest) {
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
 
+    if (!idea || typeof idea !== "string") {
+      return NextResponse.json(
+        { error: "아이디어가 비어 있습니다." },
+        { status: 400 }
+      );
+    }
+
     if (!rfp) {
       return NextResponse.json(
         { error: "RFP 데이터가 없습니다. 먼저 RFP를 생성해 주세요." },
@@ -96,8 +120,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ RFP의 '목표 설정 및 문제 정의'만 기반으로 제품 중심 프롬프트 생성
-    const prompt = buildProductPrompt(rfp);
+    // ✅ 제품 중심 프롬프트 생성
+    const prompt = buildDesignPrompt(idea, rfp);
 
     // Together 이미지 생성 요청
     const response = await fetch(TOGETHER_URL, {
@@ -108,23 +132,31 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: MODEL_NAME,
-        prompt,        // 제품 디자인 전용 프롬프트
+        prompt,
         width: 1024,
         height: 1024,
         steps: 6,
-        n: 2,          // 2장 생성
+        n: 2, // 2장 정도만
         response_format: "b64_json",
-        // ⚠️ Together/FLUX가 negative_prompt를 지원한다면 여기에 추가:
-        // negative_prompt:
-        //   "people, person, human, face, portrait, hands, crowd, text, logo, watermark",
       }),
     });
 
     const json = await response.json();
+
     if (!response.ok) {
+      // Together에서 내려준 에러를 최대한 짧은 메시지로 정리
+      const message =
+        json?.error?.message ||
+        json?.error ||
+        json?.detail ||
+        `이미지 생성 API 호출 실패 (status ${response.status})`;
+
       console.error("[design-images] Together error:", json);
+
       return NextResponse.json(
-        { error: json?.error || "이미지 생성 API 호출 실패", raw: json },
+        {
+          error: message,
+        },
         { status: 500 }
       );
     }
@@ -140,6 +172,8 @@ export async function POST(req: NextRequest) {
           } else {
             images.push(`data:image/png;base64,${item}`);
           }
+        } else if (item?.image_base64) {
+          images.push(`data:image/png;base64,${item.image_base64}`);
         }
       }
     }
@@ -158,20 +192,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "이미지 URL을 받지 못했습니다.",
-          raw: json,
         },
         { status: 500 }
       );
     }
 
-    // ✅ 디자인 생성 메트릭 기록
+    // ✅ 메트릭 기록 (Supabase 실패해도 메인 응답에는 영향 없음)
     await logMetric(
       "design",
       {
-        model: "flux-1-krea",
+        model: "flux-1-krea", // 이미 메트릭에서 사용 중인 이름 유지
         rfpId: rfp?.id ?? null,
-        idea: idea ?? null,
-        promptSource: "target_problem_product_prompt",
+        idea,
+        promptSource: "rfp_target_problem_product_prompt",
       },
       images.length
     );
@@ -181,8 +214,11 @@ export async function POST(req: NextRequest) {
     console.error("[design-images] Unexpected error:", err);
     return NextResponse.json(
       {
-        error: "디자인 시안 생성 중 서버 에러가 발생했습니다.",
-        detail: err?.message || String(err),
+        error:
+          err?.message ||
+          err?.error ||
+          err?.detail ||
+          "디자인 시안 생성 중 서버 에러가 발생했습니다.",
       },
       { status: 500 }
     );
