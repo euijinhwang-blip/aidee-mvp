@@ -3,15 +3,18 @@ import { supabase } from "@/lib/supabase";
 
 export async function POST() {
   try {
-    await supabase.from("metrics").insert({
+    const { error } = await supabase.from("metrics").insert({
       type: "visit",
       count: 1,
-      meta: {}
+      meta: {},
     });
 
+    if (error) throw error;
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-  return NextResponse.json({ error: err.message }, { status: 500 });
-}
-
+  } catch (err) {
+    if (err instanceof Error) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+    return NextResponse.json({ error: "Unknown error" }, { status: 500 });
+  }
 }

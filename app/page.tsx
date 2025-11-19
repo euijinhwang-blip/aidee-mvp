@@ -1,4 +1,3 @@
-// app/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -113,7 +112,7 @@ export default function Home() {
     []
   );
 
-  // ✅ 페이지 최초 방문 기록 (컴포넌트 안으로 이동)
+  // 페이지 최초 방문 기록
   useEffect(() => {
     fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
   }, []);
@@ -124,16 +123,6 @@ export default function Home() {
     setError("");
     setRfp(null);
     setEmailMsg("");
-
-    // RFP 생성 완료 후 기록
-    await fetch("/api/metrics/rfp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        idea,
-        meta: { survey: true },
-      }),
-    });
 
     // 디자인 시안 초기화
     setDesignImages([]);
@@ -174,7 +163,26 @@ export default function Home() {
         throw new Error(data?.error || data?.detail || `요청 실패 (${res.status})`);
       }
 
-      setRfp(data as RFP);
+      const newRfp = data as RFP;
+      setRfp(newRfp);
+
+      // ✅ RFP 생성 메트릭 기록
+      await fetch("/api/metrics/rfp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rfpId: newRfp.id,
+          meta: {
+            surveyUsed:
+              !!budget ||
+              !!timeline ||
+              !!targetMarket ||
+              !!priority ||
+              !!riskTolerance ||
+              !!regulationFocus,
+          },
+        }),
+      });
     } catch (e: any) {
       setError(e?.message || "네트워크 오류");
     } finally {
@@ -210,20 +218,19 @@ export default function Home() {
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error || "이메일 전송 실패");
       setEmailMsg("이메일을 보냈습니다.");
+
+      // ✅ 이메일 메트릭 기록
+      await fetch("/api/metrics/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: emailTo,
+          meta: { rfpId: rfp.id },
+        }),
+      });
     } catch (e: any) {
       setEmailMsg(e?.message || "이메일 전송 중 오류가 발생했습니다.");
     }
-  }
-
-  async function sendEmailMetric() {
-    await fetch("/api/metrics/email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: emailTo,
-        meta: { rfpId: rfp?.id },
-      }),
-    });
   }
 
   // 제품 디자인 이미지 생성 (/api/design-images)
@@ -247,25 +254,25 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "디자인 시안 생성 실패");
 
-      setDesignImages(data.images || []);
+      const images: string[] = data.images || [];
+      setDesignImages(images);
+
+      // ✅ 디자인 메트릭 기록
+      await fetch("/api/metrics/design", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: images.length,
+          model: "flux-1-krea",
+          meta: { rfpId: rfp.id, idea },
+        }),
+      });
     } catch (e: any) {
       console.error("design image error:", e);
       setDesignError(e?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
     } finally {
       setDesignLoading(false);
     }
-  }
-
-  async function sendDesignMetric() {
-    await fetch("/api/metrics/design", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        count: designImages.length,
-        model: "flux-1-krea",
-        meta: { idea },
-      }),
-    });
   }
 
   // 언마운트 시 타이머 정리
@@ -599,15 +606,13 @@ export default function Home() {
                   <strong>타겟 사용자:</strong> {rfp.visual_rfp.target_users}
                 </p>
                 <p>
-                  <strong>핵심 요구사항:</strong>{" "}
-                  {rfp.visual_rfp.core_requirements.join(", ")}
+                  <strong>핵심 요구사항:</strong> {rfp.visual_rfp.core_requirements.join(", ")}
                 </p>
                 <p>
                   <strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}
                 </p>
                 <p>
-                  <strong>납품물:</strong>{" "}
-                  {rfp.visual_rfp.deliverables.join(", ")}
+                  <strong>납품물:</strong> {rfp.visual_rfp.deliverables.join(", ")}
                 </p>
               </div>
             </section>
@@ -619,14 +624,10 @@ export default function Home() {
                   ⑨ AI 생성 제품 디자인 시안
                 </h2>
 
-                {designError && (
-                  <p className="text-red-500 text-sm mt-2">{designError}</p>
-                )}
+                {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
 
                 {designLoading && (
-                  <p className="text-sm text-gray-500 mt-2">
-                    디자인 시안 생성 중...
-                  </p>
+                  <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
                 )}
 
                 {!!designImages.length && (

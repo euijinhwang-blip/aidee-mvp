@@ -1,20 +1,25 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
-    await supabase.from("metrics").insert({
+    const body = await req.json(); // { to, meta? }
+
+    const { error } = await supabase.from("metrics").insert({
       type: "email",
       count: 1,
-      meta: {}
+      meta: {
+        to: body.to ?? null,
+        ...(body.meta ?? {}),
+      },
     });
 
+    if (error) throw error;
     return NextResponse.json({ ok: true });
-} catch (err) {
-  if (err instanceof Error) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    if (err instanceof Error) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+    return NextResponse.json({ error: "Unknown error" }, { status: 500 });
   }
-  return NextResponse.json({ error: "Unknown error" }, { status: 500 });
-}
-
 }
