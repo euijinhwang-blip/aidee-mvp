@@ -100,7 +100,7 @@ export default function Home() {
   // 디자인 시안 관련 상태
   const [designImages, setDesignImages] = useState<string[]>([]);
   const [designLoading, setDesignLoading] = useState(false);
-  const [designError, setDesignError] = useState("");
+  const [designError, setDesignError] = useState<any>(null);
 
   const processCaptions = useMemo(
     () => ({
@@ -440,15 +440,17 @@ export default function Home() {
           {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
         </div>
 
-        {/* 시안 생성 에러/로딩 메시지 */}
+               {/* 시안 생성 에러/로딩 메시지 */}
         {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
         {designLoading && <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>}
 
+        {/* RFP 생성 에러 메시지 */}
         {error && (
           <div className="text-red-500 text-sm">
             {typeof error === "string" ? error : JSON.stringify(error)}
           </div>
         )}
+
 
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
