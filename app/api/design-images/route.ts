@@ -1,8 +1,71 @@
-import { NextResponse } from "next/server";
+// app/api/design-images/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
-export async function POST(req: Request) {
+const hasApiKey = !!process.env.OPENAI_API_KEY;
+const client = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+
+// 아이디어 + RFP에서 이미지용 프롬프트 뽑아내는 헬퍼
+function buildDesignPrompt(idea: string, rfp: any): string {
+  const parts: string[] = [];
+
+  // 1) 기본 아이디어
+  parts.push(
+    `Industrial product design concept render, studio lighting, high-quality visualization.`
+  );
+  parts.push(`Core idea: ${idea}.`);
+
+  // 2) RFP 요약 정보들
+  if (rfp?.visual_rfp?.project_title) {
+    parts.push(`Project title: ${rfp.visual_rfp.project_title}.`);
+  }
+
+  if (rfp?.target_and_problem?.summary) {
+    parts.push(`Target & problem summary: ${rfp.target_and_problem.summary}.`);
+  }
+
+  if (Array.isArray(rfp?.key_features) && rfp.key_features.length > 0) {
+    const feat = rfp.key_features
+      .map((f: any) => `${f.name}: ${f.description}`)
+      .join("; ");
+    parts.push(`Key features: ${feat}.`);
+  }
+
+  if (rfp?.visual_rfp?.design_direction) {
+    parts.push(
+      `Design direction (form, material, CMF, overall feel): ${rfp.visual_rfp.design_direction}.`
+    );
+  }
+
+  if (Array.isArray(rfp?.visual_rfp?.core_requirements)) {
+    parts.push(
+      `Must-have requirements: ${rfp.visual_rfp.core_requirements.join(", ")}.`
+    );
+  }
+
+  // 3) 이미지 스타일 가이드 (공통)
+  parts.push(
+    `Render style: clean minimal product shot, neutral background, slight perspective, soft shadows, 3D rendering, highly detailed, concept art for presentation.`
+  );
+  parts.push(
+    `Do not show text or UI mockups. Focus on the physical product itself.`
+  );
+
+  return parts.join(" ");
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const { idea, rfp } = await req.json();
+    if (!client) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY 환경변수가 설정되어 있지 않습니다." },
+        { status: 500 }
+      );
+    }
+
+    const body = await req.json();
+    const idea: string | undefined = body?.idea;
+    const rfp: any = body?.rfp;
 
     if (!idea || !rfp) {
       return NextResponse.json(
@@ -11,64 +74,40 @@ export async function POST(req: Request) {
       );
     }
 
-    const prompt = [
-      "high quality industrial design render, studio lighting, soft shadows, 3d product visualization, no people.",
-      `Product idea: ${idea}`,
-      `Project: ${rfp.visual_rfp?.project_title}`,
-      `Concept: ${rfp.concept_and_references?.concept_summary}`,
-      `Key features: ${rfp.key_features?.map(f => `${f.name}: ${f.description}`).join(", ")}`,
-      `Core requirements: ${rfp.visual_rfp?.core_requirements?.join(", ")}`,
-      `Design direction: ${rfp.visual_rfp?.design_direction}`,
-      "",
-      "Focus on realistic product modeling, materials, proportions, and functional parts.",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    // 1) 프롬프트 생성
+    const mainPrompt = buildDesignPrompt(idea, rfp);
 
-    const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY;
+    // 2) OpenAI 이미지 생성 호출
+    const result = await client.images.generate({
+      model: "gpt-image-1",
+      prompt: mainPrompt,
+      n: 2, // 1~2장 정도만
+      size: "1024x1024",
+    });
 
-    if (!TOGETHER_API_KEY) {
+    // result.data 안에 url 들이 들어 있음
+    const urls =
+      (result as any)?.data
+        ?.map((img: any) => img.url)
+        .filter((u: string | null | undefined) => !!u) ?? [];
+
+    if (!urls.length) {
       return NextResponse.json(
-        { error: "TOGETHER_API_KEY 환경변수가 없습니다." },
+        { error: "이미지 URL을 받지 못했습니다.", prompt: mainPrompt },
         { status: 500 }
       );
     }
 
-    const response = await fetch(
-      "https://api.together.xyz/v1/images/generate",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${TOGETHER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "black-forest-labs/FLUX.1-dev",
-          prompt,
-          steps: 30,
-          width: 1024,
-          height: 1024,
-          n: 2,
-        }),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.error || "이미지 생성 실패" },
-        { status: response.status }
-      );
-    }
-
-    const images = data?.output?.map((img: any) => img.image_url) || [];
-
-    return NextResponse.json({ images });
-  } catch (e: any) {
-    console.error("design-images error:", e);
+    return NextResponse.json({
+      images: urls,
+      prompt: mainPrompt,
+    });
+  } catch (err: any) {
+    console.error("design-images route error:", err);
     return NextResponse.json(
-      { error: e?.message || "이미지 생성 중 오류" },
+      {
+        error: err?.message || "이미지 생성 중 오류가 발생했습니다.",
+      },
       { status: 500 }
     );
   }
