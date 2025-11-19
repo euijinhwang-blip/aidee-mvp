@@ -1,112 +1,140 @@
 // app/api/design-images/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 
-const hasApiKey = !!process.env.OPENAI_API_KEY;
-const client = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
+const MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free";
 
-// 아이디어 + RFP에서 이미지용 프롬프트 뽑아내는 헬퍼
+/**
+ * RFP + 아이디어를 기반으로 이미지용 프롬프트 만들기
+ */
 function buildDesignPrompt(idea: string, rfp: any): string {
-  const parts: string[] = [];
+  const projectTitle = rfp?.visual_rfp?.project_title || "";
+  const targetUsers = rfp?.visual_rfp?.target_users || "";
+  const concept = rfp?.concept_and_references?.concept_summary || "";
+  const designDir = rfp?.visual_rfp?.design_direction || "";
+  const coreReq = (rfp?.visual_rfp?.core_requirements || []).join(", ");
+  const keyFeatures = (rfp?.key_features || [])
+    .map((f: any) => f?.name)
+    .filter(Boolean)
+    .join(", ");
 
-  // 1) 기본 아이디어
-  parts.push(
-    `Industrial product design concept render, studio lighting, high-quality visualization.`
-  );
-  parts.push(`Core idea: ${idea}.`);
+  const lines = [
+    "industrial product design, high-quality studio render, 3d product shot, realistic lighting",
+    projectTitle && `product name: ${projectTitle}`,
+    `product idea: ${idea}`,
+    targetUsers && `target users: ${targetUsers}`,
+    concept && `concept: ${concept}`,
+    keyFeatures && `key features: ${keyFeatures}`,
+    coreReq && `requirements: ${coreReq}`,
+    designDir && `design direction: ${designDir}`,
+    "plain background, no text, no logo, centered product only, high detail, cinematic lighting",
+  ].filter(Boolean);
 
-  // 2) RFP 요약 정보들
-  if (rfp?.visual_rfp?.project_title) {
-    parts.push(`Project title: ${rfp.visual_rfp.project_title}.`);
-  }
-
-  if (rfp?.target_and_problem?.summary) {
-    parts.push(`Target & problem summary: ${rfp.target_and_problem.summary}.`);
-  }
-
-  if (Array.isArray(rfp?.key_features) && rfp.key_features.length > 0) {
-    const feat = rfp.key_features
-      .map((f: any) => `${f.name}: ${f.description}`)
-      .join("; ");
-    parts.push(`Key features: ${feat}.`);
-  }
-
-  if (rfp?.visual_rfp?.design_direction) {
-    parts.push(
-      `Design direction (form, material, CMF, overall feel): ${rfp.visual_rfp.design_direction}.`
-    );
-  }
-
-  if (Array.isArray(rfp?.visual_rfp?.core_requirements)) {
-    parts.push(
-      `Must-have requirements: ${rfp.visual_rfp.core_requirements.join(", ")}.`
-    );
-  }
-
-  // 3) 이미지 스타일 가이드 (공통)
-  parts.push(
-    `Render style: clean minimal product shot, neutral background, slight perspective, soft shadows, 3D rendering, highly detailed, concept art for presentation.`
-  );
-  parts.push(
-    `Do not show text or UI mockups. Focus on the physical product itself.`
-  );
-
-  return parts.join(" ");
+  return lines.join(". ");
 }
 
 export async function POST(req: NextRequest) {
   try {
-    if (!client) {
+    const apiKey = process.env.TOGETHER_API_KEY;
+    if (!apiKey) {
+      console.error("[design-images] TOGETHER_API_KEY is missing");
       return NextResponse.json(
-        { error: "OPENAI_API_KEY 환경변수가 설정되어 있지 않습니다." },
+        { error: "TOGETHER_API_KEY 환경변수가 없습니다." },
         { status: 500 }
       );
     }
 
     const body = await req.json();
-    const idea: string | undefined = body?.idea;
+    const idea: string = body?.idea;
     const rfp: any = body?.rfp;
 
-    if (!idea || !rfp) {
+    if (!idea || typeof idea !== "string") {
       return NextResponse.json(
-        { error: "idea와 rfp가 모두 필요합니다." },
+        { error: "아이디어가 비어 있습니다." },
         { status: 400 }
       );
     }
 
-    // 1) 프롬프트 생성
-    const mainPrompt = buildDesignPrompt(idea, rfp);
+    if (!rfp) {
+      return NextResponse.json(
+        { error: "RFP 데이터가 없습니다. 먼저 RFP를 생성해 주세요." },
+        { status: 400 }
+      );
+    }
 
-    // 2) OpenAI 이미지 생성 호출
-    const result = await client.images.generate({
-      model: "gpt-image-1",
-      prompt: mainPrompt,
-      n: 2, // 1~2장 정도만
-      size: "1024x1024",
+    const prompt = buildDesignPrompt(idea, rfp);
+
+    // Together 이미지 생성 요청
+    const response = await fetch(TOGETHER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODEL_NAME,
+        prompt,
+        width: 1024,
+        height: 1024,
+        steps: 4,
+        n: 2, // 1~2장만 생성
+        response_format: "b64_json", // base64 포맷
+      }),
     });
 
-    // result.data 안에 url 들이 들어 있음
-    const urls =
-      (result as any)?.data
-        ?.map((img: any) => img.url)
-        .filter((u: string | null | undefined) => !!u) ?? [];
-
-    if (!urls.length) {
+    const json = await response.json();
+    if (!response.ok) {
+      console.error("[design-images] Together error:", json);
       return NextResponse.json(
-        { error: "이미지 URL을 받지 못했습니다.", prompt: mainPrompt },
+        { error: json?.error || "이미지 생성 API 호출 실패", raw: json },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({
-      images: urls,
-      prompt: mainPrompt,
-    });
+    // Together 측 응답 포맷은 두 가지 가능성 처리
+    const images: string[] = [];
+
+    // 1) { output: ["data:image/png;base64,...", ...] } 형식
+    if (Array.isArray(json.output)) {
+      for (const item of json.output) {
+        if (typeof item === "string") {
+          if (item.startsWith("data:image")) {
+            images.push(item);
+          } else {
+            images.push(`data:image/png;base64,${item}`);
+          }
+        }
+      }
+    }
+
+    // 2) { data: [{ b64_json: "..." }, ...] } 형식
+    if (!images.length && Array.isArray(json.data)) {
+      for (const d of json.data) {
+        if (d?.b64_json) {
+          images.push(`data:image/png;base64,${d.b64_json}`);
+        }
+      }
+    }
+
+    if (!images.length) {
+      console.error("[design-images] Unexpected response format:", json);
+      return NextResponse.json(
+        {
+          error: "이미지 URL을 받지 못했습니다.",
+          raw: json,
+        },
+        { status: 500 }
+      );
+    }
+
+    // 프론트에서는 data.images 배열을 그대로 <img src=...> 로 사용
+    return NextResponse.json({ images }, { status: 200 });
   } catch (err: any) {
-    console.error("design-images route error:", err);
+    console.error("[design-images] Unexpected error:", err);
     return NextResponse.json(
       {
-        error: err?.message || "이미지 생성 중 오류가 발생했습니다.",
+        error: "디자인 시안 생성 중 서버 에러가 발생했습니다.",
+        detail: err?.message || String(err),
       },
       { status: 500 }
     );

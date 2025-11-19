@@ -387,8 +387,15 @@ export default function Home() {
           )}
 
           {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
-          {designError && <span className="text-sm text-red-500">{designError}</span>}
         </div>
+
+        {/* 시안 생성 에러/로딩 메시지 (버튼 아래 간단 표기) */}
+        {designError && (
+          <p className="text-red-500 text-sm mt-2">{designError}</p>
+        )}
+        {designLoading && (
+          <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
+        )}
 
         {error && <div className="text-red-500 text-sm">{error}</div>}
 
@@ -540,31 +547,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑨ AI 생성 제품 디자인 시안 */}
-            {designImages.length > 0 && (
-              <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
-                <h2 className="font-semibold text-gray-600 mb-3">
-                  ⑨ AI 생성 제품 디자인 시안
-                </h2>
-                <div className="grid md:grid-cols-2 gap-4">
-                  {designImages.map((src, i) => (
-                    <figure key={i} className="space-y-2">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={src}
-                        alt={`AI design ${i + 1}`}
-                        className="w-full rounded-2xl border bg-gray-100 object-cover"
-                      />
-                      <figcaption className="text-xs text-gray-500">
-                        {i + 1}번 시안 – FLUX.1 Krea (Together API)
-                      </figcaption>
-                    </figure>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* ⑧ RFP 요약 (항상 마지막) */}
+            {/* ⑧ RFP 요약 (항상 마지막 전) */}
             <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
               <h2 className="font-semibold text-gray-600 mb-2">⑧ RFP 요약</h2>
               <div className="text-sm text-gray-600 space-y-1">
@@ -593,6 +576,43 @@ export default function Home() {
                 </p>
               </div>
             </section>
+
+            {/* ⑨ AI 생성 제품 디자인 시안 – 여기서 이미지 렌더링 */}
+            {(designError || designLoading || designImages.length > 0) && (
+              <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
+                <h2 className="font-semibold text-gray-600 mb-2">
+                  ⑨ AI 생성 제품 디자인 시안
+                </h2>
+
+                {designError && (
+                  <p className="text-red-500 text-sm mt-2">{designError}</p>
+                )}
+
+                {designLoading && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    디자인 시안 생성 중...
+                  </p>
+                )}
+
+                {!!designImages.length && (
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {designImages.map((url, i) => (
+                      <div
+                        key={i}
+                        className="rounded-xl overflow-hidden border bg-white"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={url}
+                          alt={`design-${i}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         )}
       </div>
