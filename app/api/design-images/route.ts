@@ -1,16 +1,22 @@
 // app/api/design-images/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
 
 const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
 const MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free";
 
-import { supabase } from "@/lib/supabase";
-
-async function logMetric(event_type: string, meta: any = null) {
+// metrics 테이블에 기록 (type / count / meta 구조)
+async function logMetric(
+  type: string,
+  meta: Record<string, any> = {},
+  count: number = 1
+) {
   try {
-    const { error } = await supabase
-      .from("metrics")
-      .insert([{ event_type, meta }]);
+    const { error } = await supabase.from("metrics").insert({
+      type,
+      count,
+      meta,
+    });
     if (error) {
       console.error("[Supabase] metrics insert error:", error);
     }
@@ -21,6 +27,7 @@ async function logMetric(event_type: string, meta: any = null) {
 
 /**
  * RFP + 아이디어를 기반으로 이미지용 프롬프트 만들기
+ * (아이디어 + 레퍼런스 키워드 + 핵심 기능 + 디자인 방향 등 포함)
  */
 function buildDesignPrompt(idea: string, rfp: any): string {
   const projectTitle = rfp?.visual_rfp?.project_title || "";
@@ -28,23 +35,38 @@ function buildDesignPrompt(idea: string, rfp: any): string {
   const concept = rfp?.concept_and_references?.concept_summary || "";
   const designDir = rfp?.visual_rfp?.design_direction || "";
   const coreReq = (rfp?.visual_rfp?.core_requirements || []).join(", ");
+
   const keyFeatures = (rfp?.key_features || [])
     .map((f: any) => f?.name)
     .filter(Boolean)
     .join(", ");
 
+  const diffPoints = (rfp?.differentiation || [])
+    .map((d: any) => d?.point)
+    .filter(Boolean)
+    .join(", ");
+
+  const refKeywords = (rfp?.concept_and_references?.reference_keywords || []).join(
+    ", "
+  );
+
   const lines = [
+    // 기본 렌더링 스타일
     "industrial product design, high-quality studio render, 3d product shot, realistic lighting",
     projectTitle && `product name: ${projectTitle}`,
     `product idea: ${idea}`,
     targetUsers && `target users: ${targetUsers}`,
     concept && `concept: ${concept}`,
-    keyFeatures && `key features: ${keyFeatures}`,
+    keyFeatures && `core functional features: ${keyFeatures}`,
+    diffPoints && `differentiation points: ${diffPoints}`,
     coreReq && `requirements: ${coreReq}`,
     designDir && `design direction: ${designDir}`,
-    "plain background, no text, no logo, centered product only, high detail, cinematic lighting",
+    refKeywords && `reference style keywords: ${refKeywords}`,
+    // 네가 원하는 전체적인 스타일 가이드
+    "plain background, no text, no logo, centered single product, high detail, cinematic studio lighting, concept design visualization",
   ].filter(Boolean);
 
+  // 한 줄짜리 프롬프트로 합치기
   return lines.join(". ");
 }
 
@@ -77,6 +99,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ✅ 아이디어 + RFP 기반 프롬프트 생성
     const prompt = buildDesignPrompt(idea, rfp);
 
     // Together 이미지 생성 요청
@@ -141,12 +164,18 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-    await logMetric("design_generated", {
-      count: images.length,
-      model: "flux-1-krea", // 실제 사용중인 모델 이름
-    });
 
-    return NextResponse.json({ images: images });
+    // ✅ 디자인 생성 메트릭 기록 (metrics 테이블)
+    await logMetric(
+      "design",
+      {
+        model: "flux-1-krea",
+        rfpId: rfp?.id ?? null,
+        idea,
+      },
+      images.length
+    );
+
     // 프론트에서는 data.images 배열을 그대로 <img src=...> 로 사용
     return NextResponse.json({ images }, { status: 200 });
   } catch (err: any) {
