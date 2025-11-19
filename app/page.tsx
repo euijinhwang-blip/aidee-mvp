@@ -8,7 +8,9 @@ type Phase = {
   tasks: { title: string; owner: string }[];
   deliverables: string[];
 };
+
 type ExpertPack = { risks: string[]; asks: string[]; checklist: string[] };
+
 type RFP = {
   target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
@@ -73,89 +75,10 @@ function PhaseCard({ title, caption, phase }: { title: string; caption: string; 
     </div>
   );
 }
-function buildDesignPrompt(idea: string, rfp: any) {
-  const features = (rfp?.key_features || [])
-    .map((f: any) => `${f.name}: ${f.description}`)
-    .join(", ");
-
-  const coreReqs = (rfp?.visual_rfp?.core_requirements || []).join(", ");
-
-  return [
-    // 기본 스타일 가이드
-    "high quality industrial design render of a product, studio lighting, soft shadows, 3d rendering, no people.",
-    "",
-    // 사용자가 입력한 아이디어
-    `Product idea: ${idea}`,
-    "",
-    // RFP 요약 정보들
-    rfp?.visual_rfp?.project_title && `Project title: ${rfp.visual_rfp.project_title}`,
-    rfp?.target_and_problem?.summary && `Target & problem: ${rfp.target_and_problem.summary}`,
-    rfp?.concept_and_references?.concept_summary &&
-      `Concept: ${rfp.concept_and_references.concept_summary}`,
-    features && `Key features: ${features}`,
-    coreReqs && `Core requirements: ${coreReqs}`,
-    rfp?.visual_rfp?.design_direction &&
-      `Design direction: ${rfp.visual_rfp.design_direction}`,
-    rfp?.visual_rfp?.target_users &&
-      `Target users: ${rfp.visual_rfp.target_users}`,
-    "",
-    // 캠핑의자 같은 타입을 더 명확히
-    "Focus on the product itself, full view of the chair, smart camping chair with visible structure and details.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
 
 export default function Home() {
   const [idea, setIdea] = useState("");
   const [emailTo, setEmailTo] = useState("");
- const [designImages, setDesignImages] = useState<string[]>([]);
-const [designLoading, setDesignLoading] = useState(false);
-const [designError, setDesignError] = useState("");
-
-async function handleGenerateDesign() {
-  // 프론트에서도 1차 방어
-  if (!idea || !rfp) {
-    setDesignError("먼저 RFP를 생성해 주세요.");
-    return;
-  }
-
-  setDesignError("");
-  setDesignLoading(true);
-  setDesignImages([]);
-
-  try {
-    const res = await fetch("/api/design-images", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idea, rfp }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data?.error || "디자인 시안 생성 실패");
-    }
-
-    setDesignImages(data.images || []);
-  } catch (e: any) {
-    console.error("design image error:", e);
-    setDesignError(e?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
-  } finally {
-    setDesignLoading(false);
-  }
-}
-
-
-    // 서버에서 { images: string[] } 형태로 돌려준다고 가정
-    setDesignImages(data.images || []);
-  } catch (err: any) {
-    setDesignError(err?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
-  } finally {
-    setDesignLoading(false);
-  }
-}
-
 
   // 설문 값들
   const [budget, setBudget] = useState("");
@@ -174,6 +97,11 @@ async function handleGenerateDesign() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 디자인 시안 관련 상태
+  const [designImages, setDesignImages] = useState<string[]>([]);
+  const [designLoading, setDesignLoading] = useState(false);
+  const [designError, setDesignError] = useState("");
+
   const processCaptions = useMemo(
     () => ({
       discover: "문제/사용자/맥락을 넓게 탐색하여 ‘무엇을 만들지’를 열어 보는 단계",
@@ -191,14 +119,12 @@ async function handleGenerateDesign() {
     setRfp(null);
     setEmailMsg("");
 
-    // 디자인 시안 관련 상태 초기화
+    // 디자인 시안 초기화
     setDesignImages([]);
     setDesignError("");
 
     // 타이머 초기화
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
+    if (timerRef.current) clearInterval(timerRef.current);
     setElapsedSec(0);
     timerRef.current = setInterval(() => {
       setElapsedSec((prev) => prev + 1);
@@ -219,6 +145,7 @@ async function handleGenerateDesign() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idea, survey }),
       });
+
       const text = await res.text();
       let data: any = null;
       try {
@@ -226,7 +153,11 @@ async function handleGenerateDesign() {
       } catch {
         throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120));
       }
-      if (!res.ok) throw new Error(data?.error || data?.detail || `요청 실패 (${res.status})`);
+
+      if (!res.ok) {
+        throw new Error(data?.error || data?.detail || `요청 실패 (${res.status})`);
+      }
+
       setRfp(data as RFP);
     } catch (e: any) {
       setError(e?.message || "네트워크 오류");
@@ -239,10 +170,11 @@ async function handleGenerateDesign() {
     }
   }
 
-  // 이메일 보내기
+  // 이메일 보내기 (/api/email 사용)
   async function handleEmail() {
     if (!rfp || !emailTo) return;
     setEmailMsg("");
+
     try {
       const res = await fetch("/api/email", {
         method: "POST",
@@ -251,40 +183,51 @@ async function handleGenerateDesign() {
           to: emailTo,
           subject: "Aidee · 비주얼 RFP & 프로세스(안)",
           rfp,
+          // 디자인 시안이 있다면 같이 보내기
+          images: designImages.map((url, i) => ({
+            full: url,
+            alt: `design ${i + 1}`,
+          })),
         }),
       });
+
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error || "이메일 전송 실패");
       setEmailMsg("이메일을 보냈습니다.");
     } catch (e: any) {
-      setEmailMsg(e?.message || "이메일 전송 에러");
+      setEmailMsg(e?.message || "이메일 전송 중 오류가 발생했습니다.");
     }
   }
 
-  // 제품 디자인 이미지 생성
-  async function handleGenerateDesignImages() {
-    if (!rfp) return;
-    setDesignLoading(true);
+  // 제품 디자인 이미지 생성 (/api/design-images)
+  async function handleGenerateDesign() {
+    if (!idea || !rfp) {
+      setDesignError("먼저 아이디어를 입력하고 RFP를 생성해 주세요.");
+      return;
+    }
+
     setDesignError("");
+    setDesignLoading(true);
+    setDesignImages([]);
 
     try {
       const res = await fetch("/api/design-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rfp }),
+        body: JSON.stringify({ idea, rfp }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "이미지 생성 실패");
+      if (!res.ok) throw new Error(data?.error || "디자인 시안 생성 실패");
 
       setDesignImages(data.images || []);
     } catch (e: any) {
-      setDesignError(e?.message || "이미지 생성 중 오류가 발생했습니다.");
+      console.error("design image error:", e);
+      setDesignError(e?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
     } finally {
       setDesignLoading(false);
     }
   }
-
 
   // 언마운트 시 타이머 정리
   useEffect(() => {
@@ -296,11 +239,13 @@ async function handleGenerateDesign() {
   return (
     <main className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-3xl text-gray-600 font-semibold">Aidee: 제품디자인 기획안, 텍스트 한 줄로 완성</h1>
+        <h1 className="text-3xl text-gray-600 font-semibold">
+          Aidee: 제품디자인 기획안, 텍스트 한 줄로 완성
+        </h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터 디자인 컨셉 도출, 수행프로세스,
-          전문가 가이드, RFP 요약까지 자동으로 정리합니다.
+          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터 디자인 컨셉 도출,
+          수행프로세스, 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
         </p>
 
         {/* 아이디어 입력 */}
@@ -403,52 +348,36 @@ async function handleGenerateDesign() {
 
         {/* 상단 버튼 + 진행상황 */}
         <div className="flex flex-wrap items-center gap-3">
-  <button
-    onClick={handleGenerate}
-    disabled={loading || !idea}
-    className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-  >
-    {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
-  </button>
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !idea}
+            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+          >
+            {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
+          </button>
 
-  {/* 이메일 입력 & 전송 버튼은 그대로 두고 */}
+          <input
+            type="email"
+            placeholder="이메일 주소"
+            className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
+            value={emailTo}
+            onChange={(e) => setEmailTo(e.target.value)}
+          />
+          <button
+            onClick={handleEmail}
+            disabled={!rfp || !emailTo}
+            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
+          >
+            이메일로 받기
+          </button>
 
-  <button
-    onClick={handleGenerateDesign}
-    disabled={!rfp || designLoading}
-    className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-  >
-    {designLoading ? "디자인 시안 생성 중..." : "디자인 시안 생성하기"}
-  </button>
-</div>
-
-{/* ⑨ 디자인 시안 결과 */}
-{designError && (
-  <p className="text-red-500 text-sm mt-4">{designError}</p>
-)}
-
-{designLoading && (
-  <p className="text-sm text-gray-500 mt-4">디자인 시안 생성 중...</p>
-)}
-
-{!!designImages.length && (
-  <div className="mt-4 grid md:grid-cols-2 gap-3">
-    {designImages.map((url, i) => (
-      <div
-        key={i}
-        className="rounded-xl overflow-hidden border bg-white"
-      >
-        {/* ESLint next/image 경고 피하려면 그냥 img 사용 */}
-        <img
-          src={url}
-          alt={`design-${i}`}
-          className="w-full h-full object-cover"
-        />
-      </div>
-    ))}
-  </div>
-)}
-
+          <button
+            onClick={handleGenerateDesign}
+            disabled={!rfp || designLoading}
+            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+          >
+            {designLoading ? "디자인 시안 생성 중..." : "디자인 시안 생성하기"}
+          </button>
 
           {loading && (
             <span className="text-xs text-gray-500">
@@ -456,10 +385,9 @@ async function handleGenerateDesign() {
               초 경과
             </span>
           )}
-           {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
-          {designError && (
-            <span className="text-sm text-red-500">{designError}</span>
-          )}
+
+          {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
+          {designError && <span className="text-sm text-red-500">{designError}</span>}
         </div>
 
         {error && <div className="text-red-500 text-sm">{error}</div>}
@@ -470,7 +398,9 @@ async function handleGenerateDesign() {
             <section className="bg-white p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold text-gray-600 mb-2">① 목표 설정 및 문제 정의</h2>
               <p className="font-medium text-gray-600 mb-1">{rfp.target_and_problem.summary}</p>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap">{rfp.target_and_problem.details}</p>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                {rfp.target_and_problem.details}
+              </p>
             </section>
 
             {/* ② 핵심 기능 제안 */}
@@ -500,7 +430,9 @@ async function handleGenerateDesign() {
             {/* ④ 컨셉 & 레퍼런스 키워드 */}
             <section className="bg-white text-gray-600 p-4 rounded-2xl shadow-sm">
               <h2 className="font-semibold text-gray-600 mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
-              <p className="text-sm text-gray-600 mb-2">{rfp.concept_and_references.concept_summary}</p>
+              <p className="text-sm text-gray-600 mb-2">
+                {rfp.concept_and_references.concept_summary}
+              </p>
               <div className="flex flex-wrap gap-2 text-xs">
                 {rfp.concept_and_references.reference_keywords.map((k, i) => (
                   <span key={i} className="px-2 py-1 rounded-full border">
@@ -514,8 +446,9 @@ async function handleGenerateDesign() {
             <section className="text-gray-600 md:col-span-2 space-y-3">
               <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
               <p className="text-xs text-gray-500">
-                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로 흐르며 전체 여정을 한 번에 볼 수 있도록
-                정리했습니다. 카드들을 가로로 스크롤하면서 각 단계의 목표와 해야 할 일을 확인해 보세요.
+                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로 흐르며 전체
+                여정을 한 번에 볼 수 있도록 정리했습니다. 카드들을 가로로 스크롤하면서 각 단계의
+                목표와 해야 할 일을 확인해 보세요.
               </p>
 
               <div className="mt-2 -mx-4 px-4 md:mx-0 md:px-0">
@@ -606,7 +539,7 @@ async function handleGenerateDesign() {
                 })}
               </div>
             </section>
-          
+
             {/* ⑨ AI 생성 제품 디자인 시안 */}
             {designImages.length > 0 && (
               <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
@@ -648,13 +581,15 @@ async function handleGenerateDesign() {
                   <strong>타겟 사용자:</strong> {rfp.visual_rfp.target_users}
                 </p>
                 <p>
-                  <strong>핵심 요구사항:</strong> {rfp.visual_rfp.core_requirements.join(", ")}
+                  <strong>핵심 요구사항:</strong>{" "}
+                  {rfp.visual_rfp.core_requirements.join(", ")}
                 </p>
                 <p>
                   <strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}
                 </p>
                 <p>
-                  <strong>납품물:</strong> {rfp.visual_rfp.deliverables.join(", ")}
+                  <strong>납품물:</strong>{" "}
+                  {rfp.visual_rfp.deliverables.join(", ")}
                 </p>
               </div>
             </section>
