@@ -26,17 +26,51 @@ async function logMetric(
 }
 
 /**
- * RFP의 "목표 설정 및 문제 정의" 텍스트만 추출
- * (summary + details 를 단순 결합)
+ * RFP의 "목표 설정 및 문제 정의"를 제품 설명용 텍스트로 추출
+ * - 너무 길면 모델이 흐려지니 앞부분만 200자 정도 사용
  */
-function extractTargetProblemText(rfp: any): string {
-  const summary = rfp?.target_and_problem?.summary ?? "";
-  const details = rfp?.target_and_problem?.details ?? "";
+function extractProblemSnippet(rfp: any): string {
+  const summary = (rfp?.target_and_problem?.summary ?? "").trim();
+  const details = (rfp?.target_and_problem?.details ?? "").trim();
 
-  const combined = [summary, details].filter(Boolean).join("\n");
+  let combined = [summary, details].filter(Boolean).join(" ");
+  if (!combined) return "";
 
-  // 완전히 비어있으면 fallback
-  return combined || "Product design concept";
+  // 너무 길면 앞부분만 사용
+  if (combined.length > 200) {
+    combined = combined.slice(0, 200) + "...";
+  }
+  return combined;
+}
+
+/**
+ * 최종 제품 디자인용 프롬프트
+ * - 영어로 "이건 물건이다, 사람은 나오지 마라"를 강하게 명시
+ * - RFP 문제정의는 "어떤 문제를 해결하는 제품인지" 설명으로만 사용
+ */
+function buildProductPrompt(rfp: any): string {
+  const problemSnippet = extractProblemSnippet(rfp);
+
+  // 제품이 어떤 카테고리인지 대략 유추 (없으면 'device'로)
+  // 필요하면 나중에 RFP 스키마에 category 추가해서 더 정확히 쓸 수 있음
+  const roughCategory =
+    rfp?.visual_rfp?.project_title?.toLowerCase().includes("wearable")
+      ? "wearable device"
+      : "physical product";
+
+  const lines = [
+    // 1. 이건 "제품 콘셉트 렌더"라는 걸 먼저 못 박기
+    `High-quality industrial ${roughCategory} design render, 3D product visualization, studio lighting, clean background.`,
+    // 2. 어떤 문제를 해결하는 제품인지 (RFP 목표/문제정의에서 온 내용)
+    problemSnippet &&
+      `Design a ${roughCategory} that solves the following problem: ${problemSnippet}`,
+    // 3. 사람/장면을 막는 네거티브 가이드
+    "Focus only on the product itself, isolated object shot.",
+    "No people, no human body, no faces, no hands, no text, no logo, no UI screenshots.",
+    "Plain neutral background, centered product, photorealistic materials, detailed industrial design concept.",
+  ].filter(Boolean);
+
+  return lines.join(" ");
 }
 
 export async function POST(req: NextRequest) {
@@ -54,8 +88,6 @@ export async function POST(req: NextRequest) {
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
 
-    // 프론트에서 이미 idea와 rfp를 보낸다고 가정하지만,
-    // 여기서는 rfp가 핵심이므로 rfp만은 반드시 필요
     if (!rfp) {
       return NextResponse.json(
         { error: "RFP 데이터가 없습니다. 먼저 RFP를 생성해 주세요." },
@@ -63,8 +95,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ RFP의 '목표 설정 및 문제 정의' 부분만 프롬프트로 사용
-    const prompt = extractTargetProblemText(rfp);
+    // ✅ RFP의 '목표 설정 및 문제 정의'만 기반으로 제품 중심 프롬프트 생성
+    const prompt = buildProductPrompt(rfp);
 
     // Together 이미지 생성 요청
     const response = await fetch(TOGETHER_URL, {
@@ -75,12 +107,15 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: MODEL_NAME,
-        prompt,          // 여기서 오직 target_and_problem 텍스트만 사용
+        prompt,        // 제품 디자인 전용 프롬프트
         width: 1024,
         height: 1024,
-        steps: 4,
-        n: 2,            // 1~2장만 생성
+        steps: 6,
+        n: 2,          // 2장 생성
         response_format: "b64_json",
+        // ⚠️ Together/FLUX가 negative_prompt를 지원한다면 여기에 추가:
+        // negative_prompt:
+        //   "people, person, human, face, portrait, hands, crowd, text, logo, watermark",
       }),
     });
 
@@ -93,7 +128,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Together 응답 포맷 처리
     const images: string[] = [];
 
     // 1) { output: ["data:image/png;base64,...", ...] } 형식
@@ -136,12 +170,11 @@ export async function POST(req: NextRequest) {
         model: "flux-1-krea",
         rfpId: rfp?.id ?? null,
         idea: idea ?? null,
-        promptSource: "target_and_problem_only",
+        promptSource: "target_problem_product_prompt",
       },
       images.length
     );
 
-    // 프론트에서는 data.images 배열을 그대로 <img src=...> 로 사용
     return NextResponse.json({ images }, { status: 200 });
   } catch (err: any) {
     console.error("[design-images] Unexpected error:", err);
