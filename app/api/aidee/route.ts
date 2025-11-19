@@ -1,6 +1,5 @@
 // app/api/aidee/route.ts
 import OpenAI from "openai";
-import { supabaseAnon } from "@/lib/supabase-serve";
 import { supabaseServer } from "@/lib/supabase-server";
 
 
