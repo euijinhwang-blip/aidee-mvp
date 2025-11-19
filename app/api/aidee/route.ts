@@ -1,5 +1,6 @@
 // app/api/aidee/route.ts
 import OpenAI from "openai";
+
 import { supabaseServer } from "@/lib/supabase-server";
 
 
@@ -222,10 +223,6 @@ const responseBody = {
 };
 
     // 4) 클라이언트로는 log_id도 같이 보내주기
-    const responseBody = {
-      ...rfpResult,
-      log_id: logId, // null 일 수 있음
-    };
 
     return new Response(JSON.stringify(responseBody), {
       status: 200,
