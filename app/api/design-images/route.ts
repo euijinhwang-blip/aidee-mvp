@@ -4,6 +4,21 @@ import { NextRequest, NextResponse } from "next/server";
 const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
 const MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free";
 
+import { supabase } from "@/lib/supabase";
+
+async function logMetric(event_type: string, meta: any = null) {
+  try {
+    const { error } = await supabase
+      .from("metrics")
+      .insert([{ event_type, meta }]);
+    if (error) {
+      console.error("[Supabase] metrics insert error:", error);
+    }
+  } catch (e) {
+    console.error("[Supabase] metrics unexpected error:", e);
+  }
+}
+
 /**
  * RFP + 아이디어를 기반으로 이미지용 프롬프트 만들기
  */
@@ -126,7 +141,12 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+    await logMetric("design_generated", {
+      count: images.length,
+      model: "flux-1-krea", // 실제 사용중인 모델 이름
+    });
 
+    return NextResponse.json({ images: images });
     // 프론트에서는 data.images 배열을 그대로 <img src=...> 로 사용
     return NextResponse.json({ images }, { status: 200 });
   } catch (err: any) {
