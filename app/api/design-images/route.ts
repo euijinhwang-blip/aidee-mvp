@@ -2,12 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
-// ✅ -Free 제거: 현재 Together에서 권장하는 모델 이름
-const MODEL_NAME = "black-forest-labs/FLUX.1-schnell";
-
 // ─────────────────────────────────────────────
-// metrics 테이블에 기록 (type / count / meta)
+// 공통: metrics 기록
 // ─────────────────────────────────────────────
 async function logMetric(
   type: string,
@@ -24,15 +20,13 @@ async function logMetric(
       console.error("[Supabase] metrics insert error:", error);
     }
   } catch (e) {
-    // supabase 설정 문제로 실패하더라도 메인 기능은 막지 않기
     console.error("[Supabase] unexpected insert error:", e);
   }
 }
 
 // ─────────────────────────────────────────────
-// RFP에서 제품 설명 텍스트 추출
-//  - 목표설정/문제정의(summary + details) 기준
-//  - 너무 길면 앞부분만 사용
+// RFP 텍스트에서 제품 설명 스니펫 추출
+//  - 목표 설정 & 문제 정의(summary + details)
 // ─────────────────────────────────────────────
 function extractProblemSnippet(rfp: any): string {
   const summary = (rfp?.target_and_problem?.summary ?? "").trim();
@@ -41,7 +35,6 @@ function extractProblemSnippet(rfp: any): string {
 
   if (!combined) return "";
 
-  // 너무 길면 앞부분만 사용 (모델이 핵심만 잡도록)
   const MAX_LEN = 220;
   if (combined.length > MAX_LEN) {
     combined = combined.slice(0, MAX_LEN) + "...";
@@ -50,13 +43,12 @@ function extractProblemSnippet(rfp: any): string {
 }
 
 // ─────────────────────────────────────────────
-// 최종 제품 디자인용 프롬프트 생성
-//  - 사람/배경이 아니라 "제품 렌더" 쪽으로 강하게 유도
+// 최종 이미지 프롬프트 생성
+//  - 사람/배경보다 '제품'에 포커스
 // ─────────────────────────────────────────────
 function buildDesignPrompt(idea: string, rfp: any): string {
   const problem = extractProblemSnippet(rfp);
 
-  // 프로젝트명에서 대략적인 카테고리 추정 (없으면 device)
   const title: string = rfp?.visual_rfp?.project_title ?? "";
   const lowerTitle = title.toLowerCase();
 
@@ -70,15 +62,11 @@ function buildDesignPrompt(idea: string, rfp: any): string {
   }
 
   const lines = [
-    // 1) 이건 제품 렌더다
-    `High-quality industrial ${category} design render, 3D product visualization, studio lighting, clean background.`,
-    // 2) 아이디어 한 줄
+    `High-quality industrial ${category} design, 3D product visualization, studio lighting, clean background.`,
     idea && `Product idea: ${idea}`,
-    // 3) 어떤 문제를 해결하는지 (RFP 기반)
-    problem && `The product is designed to solve the following problem: ${problem}`,
-    // 4) 네거티브 가이드
+    problem && `The product is designed to solve: ${problem}`,
     "Focus only on the product itself, isolated object shot.",
-    "No people, no human body, no faces, no hands, no crowd, no environment scene.",
+    "No people, no human body, no faces, no hands.",
     "No text, no UI screenshot, no logo, no watermark.",
     "Plain neutral background, centered product, photorealistic materials, detailed industrial design concept.",
   ].filter(Boolean);
@@ -87,24 +75,239 @@ function buildDesignPrompt(idea: string, rfp: any): string {
 }
 
 // ─────────────────────────────────────────────
-// POST /api/design-images
-//  - body: { idea: string, rfp: any }
-//  - response: { images: string[] } (data:image/png;base64,...)
+// DALL·E (OpenAI) - 브랜딩 / Key visual 용
+//  - provider: "dalle"
+//  - env: OPENAI_API_KEY
 // ─────────────────────────────────────────────
-export async function POST(req: NextRequest) {
-  try {
-    const apiKey = process.env.TOGETHER_API_KEY;
-    if (!apiKey) {
-      console.error("[design-images] TOGETHER_API_KEY is missing");
-      return NextResponse.json(
-        { error: "TOGETHER_API_KEY 환경변수가 없습니다." },
-        { status: 500 }
+async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY 환경변수가 없습니다.");
+  }
+
+  const res = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-image-1",
+      prompt,
+      n,
+      size: "1024x1024",
+      response_format: "b64_json",
+    }),
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    console.error("[DALL·E] error:", json);
+    throw new Error(
+      json?.error?.message ||
+        json?.error ||
+        `DALL·E 생성 실패 (status ${res.status})`
+    );
+  }
+
+  const images: string[] = [];
+  if (Array.isArray(json.data)) {
+    for (const d of json.data) {
+      if (d?.b64_json) {
+        images.push(`data:image/png;base64,${d.b64_json}`);
+      }
+    }
+  }
+
+  if (!images.length) {
+    throw new Error("DALL·E에서 이미지 데이터를 받지 못했습니다.");
+  }
+
+  return images;
+}
+
+// ─────────────────────────────────────────────
+// Stable Diffusion (Stability AI) - 컨셉 스케치 / 일러스트
+//  - provider: "stability"
+//  - env: STABILITY_API_KEY
+// ─────────────────────────────────────────────
+async function generateWithStability(
+  prompt: string,
+  n: number
+): Promise<string[]> {
+  const apiKey = process.env.STABILITY_API_KEY;
+  if (!apiKey) {
+    throw new Error("STABILITY_API_KEY 환경변수가 없습니다.");
+  }
+
+  const url =
+    "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image";
+
+  const body = {
+    steps: 30,
+    width: 1024,
+    height: 1024,
+    cfg_scale: 7,
+    samples: n,
+    text_prompts: [
+      { text: prompt, weight: 1 },
+      {
+        text: "blurry, bad quality, low resolution, text, logo, watermark, human, people, body, face, hands",
+        weight: -1,
+      },
+    ],
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const json = await res.json();
+
+  if (!res.ok) {
+    console.error("[Stability] error:", json);
+    throw new Error(
+      json?.message ||
+        json?.error ||
+        `Stable Diffusion 생성 실패 (status ${res.status})`
+    );
+  }
+
+  const images: string[] = [];
+  if (Array.isArray(json.artifacts)) {
+    for (const art of json.artifacts) {
+      if (art?.base64) {
+        images.push(`data:image/png;base64,${art.base64}`);
+      }
+    }
+  }
+
+  if (!images.length) {
+    throw new Error("Stable Diffusion에서 이미지 데이터를 받지 못했습니다.");
+  }
+
+  return images;
+}
+
+// ─────────────────────────────────────────────
+// Meshi AI Text-to-3D Preview - 제품처럼 보이는 3D 렌더 썸네일
+//  - provider: "meshy"
+//  - env: MESHY_API_KEY
+//  - 내부적으로 3D 모델 생성 후 thumbnail_url을 이미지로 사용
+// ─────────────────────────────────────────────
+async function generateWithMeshy(prompt: string): Promise<string[]> {
+  const apiKey = process.env.MESHY_API_KEY;
+  if (!apiKey) {
+    throw new Error("MESHY_API_KEY 환경변수가 없습니다.");
+  }
+
+  // 1) preview task 생성
+  const createRes = await fetch(
+    "https://api.meshy.ai/openapi/v2/text-to-3d",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        mode: "preview",
+        prompt,
+        art_style: "realistic",
+        should_remesh: true,
+      }),
+    }
+  );
+
+  const createJson = await createRes.json();
+  if (!createRes.ok) {
+    console.error("[Meshy] create error:", createJson);
+    throw new Error(
+      createJson?.error ||
+        createJson?.message ||
+        `Meshy preview task 생성 실패 (status ${createRes.status})`
+    );
+  }
+
+  const taskId: string | undefined = createJson?.result;
+  if (!taskId) {
+    throw new Error("Meshy preview task id를 받지 못했습니다.");
+  }
+
+  // 2) task 완료까지 폴링 (최대 ~60초)
+  const start = Date.now();
+  const TIMEOUT_MS = 60_000;
+  const INTERVAL_MS = 3_000;
+
+  while (true) {
+    if (Date.now() - start > TIMEOUT_MS) {
+      throw new Error("Meshy 작업이 제한 시간 내에 완료되지 않았습니다.");
+    }
+
+    const statusRes = await fetch(
+      `https://api.meshy.ai/openapi/v2/text-to-3d/${taskId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+    );
+
+    const statusJson = await statusRes.json();
+    if (!statusRes.ok) {
+      console.error("[Meshy] status error:", statusJson);
+      throw new Error(
+        statusJson?.error ||
+          statusJson?.message ||
+          `Meshy status 조회 실패 (status ${statusRes.status})`
       );
     }
 
+    const status = statusJson?.status;
+    if (status === "SUCCEEDED") {
+      const thumb: string | undefined = statusJson?.thumbnail_url;
+      if (!thumb) {
+        throw new Error("Meshy 응답에 thumbnail_url이 없습니다.");
+      }
+      // 썸네일 URL 하나를 이미지로 반환
+      return [thumb];
+    }
+    if (status === "FAILED" || status === "CANCELED") {
+      throw new Error(
+        `Meshy 작업 실패 (status=${status}, message=${statusJson?.task_error?.message ?? ""})`
+      );
+    }
+
+    // 아직 PENDING / RUNNING → 잠깐 대기 후 재시도
+    await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
+  }
+}
+
+// ─────────────────────────────────────────────
+// POST /api/design-images
+//  - body:
+//    {
+//      idea: string,
+//      rfp: any,
+//      provider?: "meshy" | "stability" | "dalle"   // 선택
+//    }
+//  - response: { images: string[] }
+// ─────────────────────────────────────────────
+export async function POST(req: NextRequest) {
+  try {
     const body = await req.json();
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
+    const provider =
+      (body?.provider as "meshy" | "stability" | "dalle" | undefined) ??
+      "meshy"; // 기본은 Meshi(제품 렌더)
 
     if (!idea || typeof idea !== "string") {
       return NextResponse.json(
@@ -120,88 +323,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ 제품 중심 프롬프트 생성
     const prompt = buildDesignPrompt(idea, rfp);
 
-    // Together 이미지 생성 요청
-    const response = await fetch(TOGETHER_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL_NAME,
-        prompt,
-        width: 1024,
-        height: 1024,
-        steps: 6,
-        n: 2, // 2장 정도만
-        response_format: "b64_json",
-      }),
-    });
+    let images: string[] = [];
+    let providerName = provider;
 
-    const json = await response.json();
-
-    if (!response.ok) {
-      // Together에서 내려준 에러를 최대한 짧은 메시지로 정리
-      const message =
-        json?.error?.message ||
-        json?.error ||
-        json?.detail ||
-        `이미지 생성 API 호출 실패 (status ${response.status})`;
-
-      console.error("[design-images] Together error:", json);
-
-      return NextResponse.json(
-        {
-          error: message,
-        },
-        { status: 500 }
-      );
+    if (provider === "dalle") {
+      images = await generateWithDalle(prompt, 2);
+      providerName = "dalle_gpt-image-1";
+    } else if (provider === "stability") {
+      images = await generateWithStability(prompt, 2);
+      providerName = "stability_sdxl";
+    } else {
+      // 기본: Meshi 3D 프리뷰 썸네일
+      images = await generateWithMeshy(prompt);
+      providerName = "meshy_text_to_3d_preview";
     }
 
-    const images: string[] = [];
-
-    // 1) { output: ["data:image/png;base64,...", ...] } 형식
-    if (Array.isArray(json.output)) {
-      for (const item of json.output) {
-        if (typeof item === "string") {
-          if (item.startsWith("data:image")) {
-            images.push(item);
-          } else {
-            images.push(`data:image/png;base64,${item}`);
-          }
-        } else if (item?.image_base64) {
-          images.push(`data:image/png;base64,${item.image_base64}`);
-        }
-      }
-    }
-
-    // 2) { data: [{ b64_json: "..." }, ...] } 형식
-    if (!images.length && Array.isArray(json.data)) {
-      for (const d of json.data) {
-        if (d?.b64_json) {
-          images.push(`data:image/png;base64,${d.b64_json}`);
-        }
-      }
-    }
-
-    if (!images.length) {
-      console.error("[design-images] Unexpected response format:", json);
-      return NextResponse.json(
-        {
-          error: "이미지 URL을 받지 못했습니다.",
-        },
-        { status: 500 }
-      );
-    }
-
-    // ✅ 메트릭 기록 (Supabase 실패해도 메인 응답에는 영향 없음)
+    // 메트릭 기록
     await logMetric(
       "design",
       {
-        model: "flux-1-krea", // 이미 메트릭에서 사용 중인 이름 유지
+        provider: providerName,
         rfpId: rfp?.id ?? null,
         idea,
         promptSource: "rfp_target_problem_product_prompt",

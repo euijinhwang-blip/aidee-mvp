@@ -1,6 +1,21 @@
 // app/api/email/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
+import { supabaseAnon } from "@/lib/supabase";
+
+// 공통 metrics 로깅 헬퍼 (aidee/route.ts의 것과 동일하게 맞춰도 됨)
+async function logMetric(event_type: string, meta: any = null) {
+  try {
+    const { error } = await supabaseAnon
+      .from("metrics")
+      .insert([{ event_type, meta }]);
+    if (error) {
+      console.error("[Supabase] metrics insert error:", error);
+    }
+  } catch (e) {
+    console.error("[Supabase] metrics unexpected error:", e);
+  }
+}
 
 const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = new Resend(resendApiKey);
@@ -170,6 +185,13 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+   
+    // ✅ 이메일 전송 성공 시 metrics에 기록
+    await logMetric("email_sent", {
+      to,
+      subject: mailSubject,
+      project_title: rfp?.visual_rfp?.project_title ?? null,
+    });
 
     console.log("[Email] sent successfully:", {
       id: data?.id,

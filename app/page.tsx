@@ -30,6 +30,8 @@ type RFP = {
   expert_reviews?: { pm: ExpertPack; designer: ExpertPack; engineer: ExpertPack; marketer: ExpertPack };
 };
 
+type DesignProvider = "meshy" | "stability" | "dalle";
+
 function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
   if (!phase) return null;
   return (
@@ -90,7 +92,7 @@ export default function Home() {
 
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<any>(null); // 👈 문자열/객체 모두 허용
+  const [error, setError] = useState<any>(null); // 문자열/객체 모두 허용
   const [emailMsg, setEmailMsg] = useState("");
 
   // 진행 시간(초)
@@ -101,6 +103,7 @@ export default function Home() {
   const [designImages, setDesignImages] = useState<string[]>([]);
   const [designLoading, setDesignLoading] = useState(false);
   const [designError, setDesignError] = useState<any>(null);
+  const [designProvider, setDesignProvider] = useState<DesignProvider>("meshy");
 
   const processCaptions = useMemo(
     () => ({
@@ -253,7 +256,7 @@ export default function Home() {
       const res = await fetch("/api/design-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, rfp }),
+        body: JSON.stringify({ idea, rfp, provider: designProvider }),
       });
 
       const data = await res.json();
@@ -262,14 +265,21 @@ export default function Home() {
       const images: string[] = data.images || [];
       setDesignImages(images);
 
+      const modelName =
+        designProvider === "dalle"
+          ? "dalle_gpt-image-1"
+          : designProvider === "stability"
+          ? "stability_sdxl"
+          : "meshy_text_to_3d_preview";
+
       // ✅ 디자인 메트릭 기록
       await fetch("/api/metrics/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           count: images.length,
-          model: "flux-1-krea",
-          meta: { rfpId: rfp.id, idea },
+          model: modelName,
+          meta: { rfpId: rfp.id, idea, provider: designProvider },
         }),
       });
     } catch (e: any) {
@@ -422,6 +432,44 @@ export default function Home() {
             이메일로 받기
           </button>
 
+          {/* 이미지 엔진 선택 토글 */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-gray-500 mr-1">이미지 엔진:</span>
+            <button
+              type="button"
+              onClick={() => setDesignProvider("meshy")}
+              className={`px-3 py-1 rounded-full text-xs border ${
+                designProvider === "meshy"
+                  ? "bg-gray-800 text-white border-gray-800"
+                  : "bg-white text-gray-600"
+              }`}
+            >
+              Meshi (3D/실사)
+            </button>
+            <button
+              type="button"
+              onClick={() => setDesignProvider("stability")}
+              className={`px-3 py-1 rounded-full text-xs border ${
+                designProvider === "stability"
+                  ? "bg-gray-800 text-white border-gray-800"
+                  : "bg-white text-gray-600"
+              }`}
+            >
+              Stable Diffusion (컨셉)
+            </button>
+            <button
+              type="button"
+              onClick={() => setDesignProvider("dalle")}
+              className={`px-3 py-1 rounded-full text-xs border ${
+                designProvider === "dalle"
+                  ? "bg-gray-800 text-white border-gray-800"
+                  : "bg-white text-gray-600"
+              }`}
+            >
+              DALL·E (브랜딩)
+            </button>
+          </div>
+
           <button
             onClick={handleGenerateDesign}
             disabled={!rfp || designLoading}
@@ -440,7 +488,7 @@ export default function Home() {
           {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
         </div>
 
-               {/* 시안 생성 에러/로딩 메시지 */}
+        {/* 시안 생성 에러/로딩 메시지 */}
         {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
         {designLoading && <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>}
 
@@ -450,7 +498,6 @@ export default function Home() {
             {typeof error === "string" ? error : JSON.stringify(error)}
           </div>
         )}
-
 
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
@@ -634,6 +681,15 @@ export default function Home() {
                 <h2 className="font-semibold text-gray-600 mb-2">
                   ⑨ AI 생성 제품 디자인 시안
                 </h2>
+
+                <p className="text-xs text-gray-500 mb-2">
+                  현재 엔진:{" "}
+                  {designProvider === "meshy"
+                    ? "Meshi · 3D 프리뷰 썸네일"
+                    : designProvider === "stability"
+                    ? "Stable Diffusion · 컨셉 스케치"
+                    : "DALL·E · 브랜딩/Key Visual"}
+                </p>
 
                 {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
 
