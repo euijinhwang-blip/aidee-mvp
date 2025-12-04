@@ -1,12 +1,12 @@
 // app/api/email/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabaseAnon } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 // 공통 metrics 로깅 헬퍼 (aidee/route.ts의 것과 동일하게 맞춰도 됨)
 async function logMetric(event_type: string, meta: any = null) {
   try {
-    const { error } = await supabaseAnon
+    const { error } = await supabase
       .from("metrics")
       .insert([{ event_type, meta }]);
     if (error) {

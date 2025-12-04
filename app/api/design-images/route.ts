@@ -281,7 +281,9 @@ async function generateWithMeshy(prompt: string): Promise<string[]> {
     }
     if (status === "FAILED" || status === "CANCELED") {
       throw new Error(
-        `Meshy 작업 실패 (status=${status}, message=${statusJson?.task_error?.message ?? ""})`
+        `Meshy 작업 실패 (status=${status}, message=${
+          statusJson?.task_error?.message ?? ""
+        })`
       );
     }
 
@@ -305,9 +307,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
-    const provider =
-      (body?.provider as "meshy" | "stability" | "dalle" | undefined) ??
-      "meshy"; // 기본은 Meshi(제품 렌더)
+
+    type Provider = "meshy" | "stability" | "dalle";
+
+    const provider: Provider =
+      (body?.provider as Provider | undefined) ?? "meshy"; // 기본은 Meshi(제품 렌더)
 
     if (!idea || typeof idea !== "string") {
       return NextResponse.json(
@@ -326,18 +330,24 @@ export async function POST(req: NextRequest) {
     const prompt = buildDesignPrompt(idea, rfp);
 
     let images: string[] = [];
-    let providerName = provider;
+
+    // 메트릭용: 공급자(dalle/stability/meshy) + 실제 모델명
+    let providerName: Provider = provider;
+    let modelName = "";
 
     if (provider === "dalle") {
       images = await generateWithDalle(prompt, 2);
-      providerName = "dalle_gpt-image-1";
+      providerName = "dalle";
+      modelName = "gpt-image-1";
     } else if (provider === "stability") {
       images = await generateWithStability(prompt, 2);
-      providerName = "stability_sdxl";
+      providerName = "stability";
+      modelName = "stable-diffusion-xl-1024-v1-0";
     } else {
       // 기본: Meshi 3D 프리뷰 썸네일
       images = await generateWithMeshy(prompt);
-      providerName = "meshy_text_to_3d_preview";
+      providerName = "meshy";
+      modelName = "text-to-3d-preview";
     }
 
     // 메트릭 기록
@@ -345,6 +355,7 @@ export async function POST(req: NextRequest) {
       "design",
       {
         provider: providerName,
+        model: modelName,
         rfpId: rfp?.id ?? null,
         idea,
         promptSource: "rfp_target_problem_product_prompt",

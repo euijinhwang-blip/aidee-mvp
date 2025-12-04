@@ -1,8 +1,8 @@
 // app/api/aidee/route.ts
 import OpenAI from "openai";
-
-import { supabaseServer } from "@/lib/supabase-server";
-
+// ❌ 기존: import { supabaseServer } from "@/lib/supabase-server";
+// ✅ 수정: 공통 supabase 클라이언트 사용
+import { supabase } from "@/lib/supabase";
 
 const hasApiKey = !!process.env.OPENAI_API_KEY;
 const client = hasApiKey
@@ -16,7 +16,8 @@ async function logRfpToSupabase(params: {
   rfp: any;
 }) {
   try {
-    const supabase = supabaseServer();
+    // ❌ 더 이상 supabaseServer()를 호출하지 않음
+    // const supabase = supabaseServer();
 
     const summary = {
       project_title: params.rfp?.visual_rfp?.project_title ?? null,
@@ -28,9 +29,9 @@ async function logRfpToSupabase(params: {
       .insert([
         {
           idea: params.idea,
-          rfp_summary: summary, // jsonb
+          rfp_summary: summary,              // jsonb
           experts: params.rfp?.experts_to_meet ?? null, // jsonb
-          survey: params.survey ?? null, // jsonb
+          survey: params.survey ?? null,     // jsonb
         },
       ])
       .select("id")
@@ -48,8 +49,6 @@ async function logRfpToSupabase(params: {
     return null;
   }
 }
-
-
 
 export async function POST(req: Request) {
   try {
@@ -209,21 +208,19 @@ export async function POST(req: Request) {
     // 2) OpenAI 실패/키 없음이면 MOCK 사용
     if (!rfpResult) {
       rfpResult = {
-        // ... (지금 쓰고 있는 MOCK 그대로 – 필요하면 위에서 쓰던 것 복사)
-        // 여기서는 길어서 생략, 지금 사용 중인 mock 객체 그대로 붙여 넣으면 됨
+        // 여기에는 지금 사용 중인 MOCK RFP 객체를 그대로 붙여 넣으면 됨
       };
     }
 
     // 3) Supabase에 로그 저장 (실패해도 사용자 응답은 계속 반환)
-const logId = await logRfpToSupabase({ idea, survey, rfp: rfpResult });
+    const logId = await logRfpToSupabase({ idea, survey, rfp: rfpResult });
 
-const responseBody = {
-  ...rfpResult,
-  log_id: logId,
-};
+    const responseBody = {
+      ...rfpResult,
+      log_id: logId,
+    };
 
     // 4) 클라이언트로는 log_id도 같이 보내주기
-
     return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { "Content-Type": "application/json" },
