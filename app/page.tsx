@@ -158,7 +158,6 @@ export default function Home() {
     fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
   }, []);
 
-  // 컨셉 이미지 선택/해제
   function toggleSelectConcept(idx: number) {
     setSelectedConceptIndexes((prev) =>
       prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
@@ -479,6 +478,12 @@ export default function Home() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  // 🔹 컨셉이미지 9장(최대)만 사용해서 카테고리별로 잘라 쓰기
+  const limitedConceptImages = conceptImages.slice(0, 9);
+  const colorImages = limitedConceptImages.slice(0, 3);
+  const styleImages = limitedConceptImages.slice(3, 6);
+  const envImages = limitedConceptImages.slice(6, 9);
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
@@ -959,7 +964,7 @@ export default function Home() {
                 </p>
               </div>
 
-              {/* 🔥 RFP 요약 아래에 디자인 시안 생성 버튼 추가 */}
+              {/* 🔥 RFP 요약 아래에 디자인 시안 생성 버튼 */}
               <div className="mt-4">
                 <button
                   type="button"
@@ -1004,38 +1009,131 @@ export default function Home() {
                 <p className="text-red-500 text-sm mt-1">{conceptError}</p>
               )}
 
-              {!!conceptImages.length && (
-                <div className="mt-3 grid grid-cols-3 md:grid-cols-5 gap-2">
-                  {conceptImages.map((url, idx) => {
-                    const selected = selectedConceptIndexes.includes(idx);
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => toggleSelectConcept(idx)}
-                        className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
-                          selected ? "ring-2 ring-gray-900 border-gray-900" : "border-gray-200"
-                        }`}
-                      >
-                        {/* 컨셉 이미지는 세로 살짝 넉넉하게 */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={url}
-                          alt={`concept-${idx}`}
-                          className="w-full h-40 object-cover"
-                        />
-                        {selected && (
-                          <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                            선택
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+              {!!limitedConceptImages.length && (
+                <div className="mt-3 space-y-4">
+                  {/* 컬러 3장 */}
+                  {colorImages.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-gray-500 mb-1">
+                        컬러 · 전체적인 색감과 톤
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {colorImages.map((url, idx) => {
+                          const globalIndex = idx; // 0,1,2
+                          const selected =
+                            selectedConceptIndexes.includes(globalIndex);
+                          return (
+                            <button
+                              key={globalIndex}
+                              type="button"
+                              onClick={() => toggleSelectConcept(globalIndex)}
+                              className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
+                                selected
+                                  ? "ring-2 ring-gray-900 border-gray-900"
+                                  : "border-gray-200"
+                              }`}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={url}
+                                alt={`concept-color-${idx}`}
+                                className="w-full h-40 object-cover"
+                              />
+                              {selected && (
+                                <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                                  선택
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 제품 스타일 3장 */}
+                  {styleImages.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-gray-500 mb-1">
+                        제품 스타일 · 형태/디테일 분위기
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {styleImages.map((url, idx) => {
+                          const globalIndex = 3 + idx; // 3,4,5
+                          const selected =
+                            selectedConceptIndexes.includes(globalIndex);
+                          return (
+                            <button
+                              key={globalIndex}
+                              type="button"
+                              onClick={() => toggleSelectConcept(globalIndex)}
+                              className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
+                                selected
+                                  ? "ring-2 ring-gray-900 border-gray-900"
+                                  : "border-gray-200"
+                              }`}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={url}
+                                alt={`concept-style-${idx}`}
+                                className="w-full h-40 object-cover"
+                              />
+                              {selected && (
+                                <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                                  선택
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 사용 환경 3장 */}
+                  {envImages.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-gray-500 mb-1">
+                        사용 환경 · 제품이 놓일 공간/상황
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {envImages.map((url, idx) => {
+                          const globalIndex = 6 + idx; // 6,7,8
+                          const selected =
+                            selectedConceptIndexes.includes(globalIndex);
+                          return (
+                            <button
+                              key={globalIndex}
+                              type="button"
+                              onClick={() => toggleSelectConcept(globalIndex)}
+                              className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
+                                selected
+                                  ? "ring-2 ring-gray-900 border-gray-900"
+                                  : "border-gray-200"
+                              }`}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={url}
+                                alt={`concept-env-${idx}`}
+                                className="w-full h-40 object-cover"
+                              />
+                              {selected && (
+                                <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                                  선택
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {!!conceptImages.length && (
+              {!!limitedConceptImages.length && (
                 <p className="mt-2 text-[11px] text-gray-500">
                   선택된 이미지: {selectedConceptIndexes.length}개 · 선택된 이미지는
                   3D 렌더 디자인 시안 프롬프트의 비주얼 방향에 보조 정보로 반영됩니다.
