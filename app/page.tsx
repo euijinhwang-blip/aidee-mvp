@@ -106,6 +106,7 @@ export default function Home() {
 
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refining, setRefining] = useState(false); // 🔥 RFP 다시 정리하기
   const [error, setError] = useState<any>(null);
   const [emailMsg, setEmailMsg] = useState("");
 
@@ -164,6 +165,17 @@ export default function Home() {
     );
   }
 
+  function buildSurveyPayload() {
+    return {
+      budget,
+      timeline,
+      target_market: targetMarket,
+      priority,
+      risk_tolerance: riskTolerance,
+      regulation_focus: regulationFocus,
+    };
+  }
+
   // RFP 생성
   async function handleGenerate() {
     setLoading(true);
@@ -193,18 +205,12 @@ export default function Home() {
     }, 1000);
 
     try {
-      const survey = {
-        budget,
-        timeline,
-        target_market: targetMarket,
-        priority,
-        risk_tolerance: riskTolerance,
-        regulation_focus: regulationFocus,
-      };
+      const survey = buildSurveyPayload();
 
       const res = await fetch("/api/aidee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // 🔥 설문을 처음 생성부터 같이 보냄
         body: JSON.stringify({ idea, survey }),
       });
 
@@ -255,6 +261,58 @@ export default function Home() {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
+    }
+  }
+
+  // 🔥 메모·설문을 반영해서 RFP를 다시 정리하는 함수
+  async function handleRefineRfp() {
+    if (!rfp || !idea) return;
+    setRefining(true);
+    setError(null);
+
+    try {
+      const survey = buildSurveyPayload();
+
+      const res = await fetch("/api/aidee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idea,
+          survey,
+          user_notes: userNotes, // 서버 systemPrompt에서 강하게 반영
+          prev_rfp: rfp, // 이전 버전 참고용(선택)
+          mode: "refine",
+        }),
+      });
+
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(
+          "서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120)
+        );
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || data?.detail || `요청 실패 (${res.status})`);
+      }
+
+      const newRfp = data as RFP;
+      setRfp(newRfp);
+
+      // 다시 생성된 뒤에도 기존 컨셉/디자인 시안은 유지하고,
+      // 필요하면 사용자가 다시 생성 버튼을 눌러 새 버전을 만들도록 둠.
+    } catch (e: any) {
+      console.error("RFP refine error:", e);
+      const msg =
+        typeof e === "string"
+          ? e
+          : e?.message || e?.error || e?.detail || "RFP 재생성 중 오류가 발생했습니다.";
+      setError(msg);
+    } finally {
+      setRefining(false);
     }
   }
 
@@ -320,6 +378,13 @@ export default function Home() {
         .filter(Boolean)
         .join(" ");
 
+      const selectedConceptImages =
+        conceptImages.length && selectedConceptIndexes.length
+          ? selectedConceptIndexes
+              .map((i) => conceptImages[i])
+              .filter(Boolean)
+          : [];
+
       const res = await fetch("/api/design-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -329,6 +394,9 @@ export default function Home() {
           provider: "dalle",
           conceptPrompt: conceptPrompt ?? undefined,
           userNotesText: userNotesText || undefined,
+          // 🔥 선택된 컨셉 이미지 URL도 프롬프트 보조 정보로 전달
+          selectedConceptImages:
+            selectedConceptImages.length > 0 ? selectedConceptImages : undefined,
         }),
       });
 
@@ -609,7 +677,7 @@ export default function Home() {
                   추가하고 싶은 점이 있나요?
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
                   placeholder="예: 실제로 겪고 있는 상황이나 더 강조하고 싶은 문제를 적어 주세요."
                   value={userNotes.target_problem}
@@ -641,7 +709,7 @@ export default function Home() {
                   추가하고 싶은 기능/제안이 있나요?
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
                   placeholder="예: 꼭 포함하고 싶은 기능이나 제외하고 싶은 기능을 적어 주세요."
                   value={userNotes.key_features}
@@ -673,7 +741,7 @@ export default function Home() {
                   우리만의 차별점에 대해 더 하고 싶은 말이 있나요?
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
                   placeholder="예: 경쟁사와 비교했을 때 더 강조하고 싶은 부분을 적어 주세요."
                   value={userNotes.differentiation}
@@ -708,7 +776,7 @@ export default function Home() {
                   비주얼/컨셉에 대해 더 남기고 싶은 메모가 있나요?
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
                   placeholder='예: "좀 더 미니멀하고 차분한 톤이면 좋겠어요"처럼 적어 주세요.'
                   value={userNotes.concept}
@@ -720,6 +788,27 @@ export default function Home() {
                   }
                 />
               </div>
+            </section>
+
+            {/* 🔥 메모/설문을 반영해 RFP 재생성 버튼 */}
+            <section className="bg-white p-4 rounded-2xl shadow-sm md:col-span-2 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-600 text-sm">
+                  내 의견을 반영해서 RFP 다시 정리하기
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  위 카드들에 적은 메모와 상단의 예산·기간·우선순위 설문을 바탕으로
+                  RFP와 전문가 피드백을 한 번 더 다듬습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRefineRfp}
+                disabled={refining}
+                className="px-4 py-2 text-xs rounded-lg border bg-gray-900 text-white disabled:opacity-50"
+              >
+                {refining ? "RFP 다시 정리 중..." : "RFP 다시 정리하기"}
+              </button>
             </section>
 
             {/* ⑤ 디자인 및 사업화 프로세스(안) */}
@@ -912,7 +1001,7 @@ export default function Home() {
               )}
 
               {!!conceptImages.length && (
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 grid grid-cols-3 md:grid-cols-5 gap-2">
                   {conceptImages.map((url, idx) => {
                     const selected = selectedConceptIndexes.includes(idx);
                     return (
@@ -924,11 +1013,12 @@ export default function Home() {
                           selected ? "ring-2 ring-gray-900 border-gray-900" : "border-gray-200"
                         }`}
                       >
+                        {/* 세로 영역 ↑: h-40 으로 늘림 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
                           alt={`concept-${idx}`}
-                          className="w-full h-28 object-cover"
+                          className="w-full h-40 object-cover"
                         />
                         {selected && (
                           <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
@@ -944,7 +1034,7 @@ export default function Home() {
               {!!conceptImages.length && (
                 <p className="mt-2 text-[11px] text-gray-500">
                   선택된 이미지: {selectedConceptIndexes.length}개 · 선택된 이미지는
-                  3D 렌더 디자인 시안 프롬프트의 비주얼 방향에 반영됩니다.
+                  3D 렌더 디자인 시안 프롬프트의 비주얼 방향에 보조 정보로 반영됩니다.
                 </p>
               )}
             </section>
@@ -973,11 +1063,12 @@ export default function Home() {
                         key={i}
                         className="rounded-xl overflow-hidden border bg-white flex flex-col"
                       >
+                        {/* 세로 영역 ↑: h-56 으로 늘림 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
                           alt={`design-${i}`}
-                          className="w-full h-40 object-cover"
+                          className="w-full h-56 object-cover"
                         />
                         <a
                           href={url}
