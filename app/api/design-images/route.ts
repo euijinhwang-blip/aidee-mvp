@@ -1,17 +1,12 @@
 // app/api/design-images/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import OpenAI from "openai";
+
+// 어떤 엔진을 쓸지 타입 정의
+type ImageProvider = "meshy" | "stability" | "dalle";
 
 // ─────────────────────────────────────────────
-// OpenAI 클라이언트 (번역용)
-// ─────────────────────────────────────────────
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
-
-// ─────────────────────────────────────────────
-// 공통: metrics 기록
+// metrics 기록
 // ─────────────────────────────────────────────
 async function logMetric(
   type: string,
@@ -33,36 +28,8 @@ async function logMetric(
 }
 
 // ─────────────────────────────────────────────
-// 간단 번역 헬퍼: 한글 → 영어
-//  - Stable Diffusion 프롬프트용
-// ─────────────────────────────────────────────
-async function translateToEnglish(text: string): Promise<string> {
-  if (!openai) return text;
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a professional translator from Korean to natural, concise English.",
-        },
-        {
-          role: "user",
-          content: `다음 문장을 자연스럽고 간결한 영어로 번역해 주세요:\n\n${text}`,
-        },
-      ],
-    });
-    const out = completion.choices[0].message.content;
-    return out || text;
-  } catch (err) {
-    console.error("[translateToEnglish] error:", err);
-    return text;
-  }
-}
-
-// ─────────────────────────────────────────────
 // RFP 텍스트에서 제품 설명 스니펫 추출
+//  - 목표 설정 & 문제 정의(summary + details)
 // ─────────────────────────────────────────────
 function extractProblemSnippet(rfp: any): string {
   const summary = (rfp?.target_and_problem?.summary ?? "").trim();
@@ -79,7 +46,8 @@ function extractProblemSnippet(rfp: any): string {
 }
 
 // ─────────────────────────────────────────────
-// 최종 이미지 프롬프트 생성 (제품 중심)
+// 최종 이미지 프롬프트 생성
+//  - 사람/배경보다 '제품'에 포커스
 // ─────────────────────────────────────────────
 function buildDesignPrompt(idea: string, rfp: any): string {
   const problem = extractProblemSnippet(rfp);
@@ -110,8 +78,9 @@ function buildDesignPrompt(idea: string, rfp: any): string {
 }
 
 // ─────────────────────────────────────────────
-// DALL·E (브랜딩 / 3D 렌더 느낌)
-//  - provider: 'dalle'
+// 1) DALL·E (OpenAI) - 3D 렌더 이미지 / 브랜딩
+//    - provider: 'dalle'
+//    - env: OPENAI_API_KEY
 // ─────────────────────────────────────────────
 async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -130,7 +99,7 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
       prompt,
       n,
       size: "1024x1024",
-      response_format: "b64_json",
+      // ⚠ response_format 제거 → Unknown parameter 에러 방지
     }),
   });
 
@@ -147,7 +116,9 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   const images: string[] = [];
   if (Array.isArray(json.data)) {
     for (const d of json.data) {
-      if (d?.b64_json) {
+      if (d?.url) {
+        images.push(d.url); // URL 우선 사용
+      } else if (d?.b64_json) {
         images.push(`data:image/png;base64,${d.b64_json}`);
       }
     }
@@ -161,8 +132,9 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
 }
 
 // ─────────────────────────────────────────────
-// Stable Diffusion (컨셉 스케치 / 일러스트)
-//  - provider: 'stability'
+// 2) Stable Diffusion (Stability AI) - 컨셉 스케치 / 일러스트
+//    - provider: 'stability'
+//    - env: STABILITY_API_KEY
 // ─────────────────────────────────────────────
 async function generateWithStability(
   prompt: string,
@@ -172,8 +144,6 @@ async function generateWithStability(
   if (!apiKey) {
     throw new Error("STABILITY_API_KEY 환경변수가 없습니다.");
   }
-
-  const englishPrompt = await translateToEnglish(prompt);
 
   const url =
     "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image";
@@ -185,7 +155,7 @@ async function generateWithStability(
     cfg_scale: 7,
     samples: n,
     text_prompts: [
-      { text: englishPrompt, weight: 1 },
+      { text: prompt, weight: 1 },
       {
         text: "blurry, bad quality, low resolution, text, logo, watermark, human, people, body, face, hands",
         weight: -1,
@@ -230,20 +200,110 @@ async function generateWithStability(
   return images;
 }
 
-// 사용할 수 있는 provider 타입
-type Provider = "dalle" | "stability";
+// ─────────────────────────────────────────────
+// 3) Meshi / Meshy AI Text-to-3D Preview
+//    - provider: 'meshy'
+//    - env: MESHY_API_KEY
+//    - 썸네일 URL 1장을 이미지로 사용
+// ─────────────────────────────────────────────
+async function generateWithMeshy(prompt: string): Promise<string[]> {
+  const apiKey = process.env.MESHY_API_KEY;
+  if (!apiKey) {
+    throw new Error("MESHY_API_KEY 환경변수가 없습니다.");
+  }
+
+  // 1) preview task 생성
+  const createRes = await fetch("https://api.meshy.ai/openapi/v2/text-to-3d", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mode: "preview",
+      prompt,
+      art_style: "realistic",
+      should_remesh: true,
+    }),
+  });
+
+  const createJson = await createRes.json();
+  if (!createRes.ok) {
+    console.error("[Meshy] create error:", createJson);
+    throw new Error(
+      createJson?.error ||
+        createJson?.message ||
+        `Meshy preview task 생성 실패 (status ${createRes.status})`
+    );
+  }
+
+  const taskId: string | undefined = createJson?.result;
+  if (!taskId) {
+    throw new Error("Meshy preview task id를 받지 못했습니다.");
+  }
+
+  // 2) task 완료까지 폴링 (최대 ~60초)
+  const start = Date.now();
+  const TIMEOUT_MS = 60_000;
+  const INTERVAL_MS = 3_000;
+
+  while (true) {
+    if (Date.now() - start > TIMEOUT_MS) {
+      throw new Error("Meshy 작업이 제한 시간 내에 완료되지 않았습니다.");
+    }
+
+    const statusRes = await fetch(
+      `https://api.meshy.ai/openapi/v2/text-to-3d/${taskId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+    );
+
+    const statusJson = await statusRes.json();
+    if (!statusRes.ok) {
+      console.error("[Meshy] status error:", statusJson);
+      throw new Error(
+        statusJson?.error ||
+          statusJson?.message ||
+          `Meshy status 조회 실패 (status ${statusRes.status})`
+      );
+    }
+
+    const status = statusJson?.status;
+    if (status === "SUCCEEDED") {
+      const thumb: string | undefined = statusJson?.thumbnail_url;
+      if (!thumb) {
+        throw new Error("Meshy 응답에 thumbnail_url이 없습니다.");
+      }
+      return [thumb]; // 썸네일 한 장
+    }
+    if (status === "FAILED" || status === "CANCELED") {
+      throw new Error(
+        `Meshy 작업 실패 (status=${status}, message=${
+          statusJson?.task_error?.message ?? ""
+        })`
+      );
+    }
+
+    // 아직 PENDING / RUNNING → 잠깐 대기 후 재시도
+    await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
+  }
+}
 
 // ─────────────────────────────────────────────
 // POST /api/design-images
-//  - body: { idea, rfp, provider?: "dalle" | "stability" }
+// body: { idea, rfp, provider?: "meshy" | "stability" | "dalle" }
 // ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
-    const provider: Provider =
-      (body?.provider as Provider | undefined) ?? "dalle";
+    const provider: ImageProvider =
+      (body?.provider as ImageProvider | undefined) ?? "meshy";
 
     if (!idea || typeof idea !== "string") {
       return NextResponse.json(
@@ -265,13 +325,18 @@ export async function POST(req: NextRequest) {
     let providerName: string = provider;
 
     if (provider === "dalle") {
-      images = await generateWithDalle(prompt, 2);
+      images = await generateWithDalle(prompt, 3); // 3장 생성
       providerName = "dalle_gpt-image-1";
-    } else {
-      images = await generateWithStability(prompt, 2);
+    } else if (provider === "stability") {
+      images = await generateWithStability(prompt, 3);
       providerName = "stability_sdxl";
+    } else {
+      // 기본: Meshi 3D 프리뷰 썸네일
+      images = await generateWithMeshy(prompt);
+      providerName = "meshy_text_to_3d_preview";
     }
 
+    // 메트릭 기록 (실패해도 메인 응답에는 영향 없음)
     await logMetric(
       "design",
       {
