@@ -772,32 +772,32 @@ export default function Home() {
                   </p>
                 )}
 
-                {!!designImages.length && (
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {designImages.map((url, i) => (
-                      <div
-                        key={i}
-                        className="relative rounded-xl overflow-hidden border bg-white"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={url}
-                          alt={`design-${i}`}
-                          className="w-full h-40 md:h-48 object-cover"
-                        />
+              {!!designImages.length && (
+  <div className="mt-4 grid grid-cols-3 gap-3">
+    {designImages.map((url, i) => (
+      <div
+        key={i}
+        className="rounded-xl overflow-hidden border bg-white flex flex-col"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={`design-${i}`}
+          className="w-full h-40 object-cover" // 높이를 줄여서 더 작게
+        />
 
-                        {/* 다운로드 버튼 */}
-                        <a
-                          href={url}
-                          download={`aidee-design-${i + 1}.png`}
-                          className="absolute bottom-2 right-2 bg-white/85 text-xs px-2 py-1 rounded shadow-sm border border-gray-200 hover:bg-white"
-                        >
-                          다운로드
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                )}
+        <a
+          href={url}
+          download={`aidee-design-${i + 1}.png`}
+          className="text-[11px] text-blue-600 underline px-2 py-1 self-end"
+        >
+          이미지 다운로드
+        </a>
+      </div>
+    ))}
+  </div>
+)}
+
               </section>
             )}
 
