@@ -2,6 +2,61 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+// 프로젝트 상태 타입
+type SavedProjectState = {
+  idea: string;
+  survey: any;
+  userNotes: any;
+  rfp: any;
+  conceptImages: string[];
+  selectedConceptIndexes: number[];
+};
+
+// ====== 🔥 프로젝트 ID 저장 훅 ======
+function useProjectId() {
+  const [projectId, setProjectId] = useState<string | null>(null);
+
+  // URL에서 id 추출
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("id");
+    if (id) setProjectId(id);
+  }, []);
+
+  // 저장 호출
+  const saveProjectState = async (state: SavedProjectState) => {
+    if (!projectId) return;
+
+    try {
+      await fetch(`/api/projects/${projectId}/state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state }),
+      });
+    } catch (e) {
+      console.error("[project save] error:", e);
+    }
+  };
+
+  // 불러오기 호출
+  const loadProjectState = async (): Promise<SavedProjectState | null> => {
+    if (!projectId) return null;
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/state`);
+      if (!res.ok) return null;
+
+      const json = await res.json();
+      return json?.state ?? null;
+    } catch (e) {
+      console.error("[project load] error:", e);
+      return null;
+    }
+  };
+
+  return { projectId, saveProjectState, loadProjectState };
+}
+
 type Phase = {
   goals: string[];
   tasks: { title: string; owner: string }[];
@@ -123,9 +178,7 @@ export default function Home() {
   const [conceptImages, setConceptImages] = useState<string[]>([]);
   const [conceptLoading, setConceptLoading] = useState(false);
   const [conceptError, setConceptError] = useState<string | null>(null);
-  const [selectedConceptIndexes, setSelectedConceptIndexes] = useState<number[]>(
-    []
-  );
+  const [selectedConceptIndexes, setSelectedConceptIndexes] = useState<number[]>([]);
 
   // 컨셉 이미지 생성에 사용된 프롬프트 (최종 디자인 프롬프트에 반영)
   const [conceptPrompt, setConceptPrompt] = useState<string | null>(null);
@@ -145,6 +198,9 @@ export default function Home() {
     differentiation: "",
     concept: "",
   });
+
+  // 🔥 프로젝트 ID 훅 사용
+  const { projectId, saveProjectState, loadProjectState } = useProjectId();
 
   const processCaptions = useMemo(
     () => ({
@@ -169,6 +225,83 @@ export default function Home() {
     fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
   }, []);
 
+  // 🔹 설문 payload 구성
+  function buildSurveyPayload() {
+    return {
+      budget,
+      timeline,
+      target_market: targetMarket,
+      priority,
+      risk_tolerance: riskTolerance,
+      regulation_focus: regulationFocus,
+    };
+  }
+
+  // 🔥 프로젝트 상태 불러오기 (URL에 id 있을 때)
+  useEffect(() => {
+    if (!projectId) return;
+
+    (async () => {
+      const loaded = await loadProjectState();
+      if (!loaded) return;
+
+      setIdea(loaded.idea ?? "");
+
+      const s = loaded.survey ?? {};
+      setBudget(s.budget ?? "");
+      setTimeline(s.timeline ?? "");
+      setTargetMarket(s.target_market ?? "");
+      setPriority(s.priority ?? "");
+      setRiskTolerance(s.risk_tolerance ?? "");
+      setRegulationFocus(s.regulation_focus ?? "");
+
+      const notes = loaded.userNotes ?? {};
+      setUserNotes({
+        target_problem: notes.target_problem ?? "",
+        key_features: notes.key_features ?? "",
+        differentiation: notes.differentiation ?? "",
+        concept: notes.concept ?? "",
+      });
+
+      setRfp(loaded.rfp ?? null);
+      setConceptImages(loaded.conceptImages ?? []);
+      setSelectedConceptIndexes(loaded.selectedConceptIndexes ?? []);
+    })().catch((e) => console.error("[project load effect] error:", e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // 🔥 프로젝트 상태 자동 저장
+  useEffect(() => {
+    if (!projectId) return;
+
+    const state: SavedProjectState = {
+      idea,
+      survey: buildSurveyPayload(),
+      userNotes,
+      rfp,
+      conceptImages,
+      selectedConceptIndexes,
+    };
+
+    saveProjectState(state).catch((e) =>
+      console.error("[project autosave] error:", e)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    projectId,
+    idea,
+    budget,
+    timeline,
+    targetMarket,
+    priority,
+    riskTolerance,
+    regulationFocus,
+    userNotes,
+    rfp,
+    conceptImages,
+    selectedConceptIndexes,
+  ]);
+
   function toggleSelectConcept(idx: number) {
     setSelectedConceptIndexes((prev) =>
       prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
@@ -179,17 +312,6 @@ export default function Home() {
     setSelectedVisualCategories((prev) =>
       prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
     );
-  }
-
-  function buildSurveyPayload() {
-    return {
-      budget,
-      timeline,
-      target_market: targetMarket,
-      priority,
-      risk_tolerance: riskTolerance,
-      regulation_focus: regulationFocus,
-    };
   }
 
   // RFP 생성
@@ -382,8 +504,7 @@ export default function Home() {
       const userNotesText = [
         userNotes.target_problem &&
           `Problem/goal notes: ${userNotes.target_problem}`,
-        userNotes.key_features &&
-          `Feature notes: ${userNotes.key_features}`,
+        userNotes.key_features && `Feature notes: ${userNotes.key_features}`,
         userNotes.differentiation &&
           `Differentiation notes: ${userNotes.differentiation}`,
         userNotes.concept && `Visual concept notes: ${userNotes.concept}`,
@@ -393,9 +514,7 @@ export default function Home() {
 
       const selectedConceptImages =
         conceptImages.length && selectedConceptIndexes.length
-          ? selectedConceptIndexes
-              .map((i) => conceptImages[i])
-              .filter(Boolean)
+          ? selectedConceptIndexes.map((i) => conceptImages[i]).filter(Boolean)
           : [];
 
       // 🔹 여기서부터 rfpLite로 축약해서 전송
