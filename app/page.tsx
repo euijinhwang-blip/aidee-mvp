@@ -15,7 +15,10 @@ type RFP = {
   target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
-  concept_and_references: { concept_summary: string; reference_keywords: string[] };
+  concept_and_references: {
+    concept_summary: string;
+    reference_keywords: string[];
+  };
   visual_rfp: {
     project_title: string;
     background: string;
@@ -27,10 +30,23 @@ type RFP = {
   };
   double_diamond?: { discover: Phase; define: Phase; develop: Phase; deliver: Phase };
   experts_to_meet?: { role: string; why: string }[];
-  expert_reviews?: { pm: ExpertPack; designer: ExpertPack; engineer: ExpertPack; marketer: ExpertPack };
+  expert_reviews?: {
+    pm: ExpertPack;
+    designer: ExpertPack;
+    engineer: ExpertPack;
+    marketer: ExpertPack;
+  };
 };
 
-function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
+function PhaseCard({
+  title,
+  caption,
+  phase,
+}: {
+  title: string;
+  caption: string;
+  phase?: Phase;
+}) {
   if (!phase) return null;
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2 h-full">
@@ -102,8 +118,11 @@ export default function Home() {
   const [designLoading, setDesignLoading] = useState(false);
   const [designError, setDesignError] = useState<any>(null);
 
-  // 🔥 이미지 엔진 선택 상태 (3D/실사, 컨셉, 브랜딩)
-  const [imageEngine, setImageEngine] = useState<"meshy" | "stability" | "dalle">("meshy");
+  // 🔥 이미지 엔진 선택 상태 (3D 렌더 / 컨셉 스케치)
+  const [imageEngine, setImageEngine] = useState<"dalle" | "stability">("dalle");
+
+  // 🔥 3-2. 사용자가 고른 비주얼 무드/스타일 키워드
+  const [styleKeywords, setStyleKeywords] = useState<string[]>([]);
 
   const processCaptions = useMemo(
     () => ({
@@ -114,6 +133,25 @@ export default function Home() {
     }),
     []
   );
+
+  // 3-2. 비주얼 무드 옵션 (임시로 몇 개만)
+  const styleOptions = useMemo(
+    () => [
+      { id: "minimal", label: "미니멀 · 심플" },
+      { id: "warm", label: "따뜻한 · 우드톤" },
+      { id: "tech", label: "테크 · 미래지향" },
+      { id: "outdoor", label: "아웃도어 · 러기드" },
+      { id: "friendly", label: "귀엽고 친근한" },
+      { id: "premium", label: "프리미엄 · 고급스러운" },
+    ],
+    []
+  );
+
+  const toggleStyle = (id: string) => {
+    setStyleKeywords((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   // 페이지 최초 방문 기록
   useEffect(() => {
@@ -130,6 +168,7 @@ export default function Home() {
     // 디자인 시안 초기화
     setDesignImages([]);
     setDesignError("");
+    setStyleKeywords([]); // 새 RFP 만들면 스타일 선택도 초기화
 
     // 타이머 초기화
     if (timerRef.current) clearInterval(timerRef.current);
@@ -159,7 +198,9 @@ export default function Home() {
       try {
         data = text ? JSON.parse(text) : null;
       } catch {
-        throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120));
+        throw new Error(
+          "서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120)
+        );
       }
 
       if (!res.ok) {
@@ -259,7 +300,8 @@ export default function Home() {
         body: JSON.stringify({
           idea,
           rfp,
-          provider: imageEngine, // 🔥 선택한 엔진 함께 전송
+          provider: imageEngine,   // "dalle" | "stability"
+          styleKeywords,           // 3-2. 사용자가 고른 비주얼 키워드 (서버에서 아직 안 써도 됨)
         }),
       });
 
@@ -275,8 +317,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           count: images.length,
-          model: imageEngine, // 어떤 엔진을 썼는지 기록
-          meta: { rfpId: rfp.id, idea },
+          model: imageEngine,
+          meta: { rfpId: rfp.id, idea, styleKeywords },
         }),
       });
     } catch (e: any) {
@@ -302,8 +344,8 @@ export default function Home() {
         </h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터 디자인 컨셉 도출,
-          수행프로세스, 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
+          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터 디자인
+          컨셉 도출, 수행프로세스, 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
         </p>
 
         {/* 아이디어 입력 */}
@@ -317,7 +359,9 @@ export default function Home() {
 
         {/* 설문 영역 */}
         <section className="bg-white p-4 rounded-2xl shadow-sm space-y-3">
-          <h2 className="font-semibold text-gray-600 mb-1 text-sm">간단 설문 · 예산/기간/시장 정보</h2>
+          <h2 className="font-semibold text-gray-600 mb-1 text-sm">
+            간단 설문 · 예산/기간/시장 정보
+          </h2>
           <div className="grid md:grid-cols-2 gap-3 text-sm">
             <div className="space-y-2">
               <label className="block">
@@ -454,47 +498,43 @@ export default function Home() {
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
             <span className="text-xs text-gray-500 mr-1">이미지 엔진:</span>
 
-            <button
-              type="button"
-              onClick={() => setImageEngine("meshy")}
-              className={`px-3 py-2 rounded-full border ${
-                imageEngine === "meshy"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300"
-              }`}
-            >
-              3D/실사 (제품 렌더)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setImageEngine("stability")}
-              className={`px-3 py-2 rounded-full border ${
-                imageEngine === "stability"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300"
-              }`}
-            >
-              컨셉 스케치 (컨셉)
-            </button>
-
+            {/* DALL·E → 3D 렌더 이미지 */}
             <button
               type="button"
               onClick={() => setImageEngine("dalle")}
-              className={`px-3 py-2 rounded-full border ${
-                imageEngine === "dalle"
+              className={
+                "px-3 py-2 rounded-full border text-xs " +
+                (imageEngine === "dalle"
                   ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300"
-              }`}
+                  : "bg-white text-gray-700 border-gray-300")
+              }
             >
-              브랜딩/키 비주얼
+              3D 렌더 이미지
+            </button>
+
+            {/* Stable Diffusion → 컨셉 스케치 */}
+            <button
+              type="button"
+              onClick={() => setImageEngine("stability")}
+              className={
+                "px-3 py-2 rounded-full border text-xs " +
+                (imageEngine === "stability"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white text-gray-700 border-gray-300")
+              }
+            >
+              컨셉 스케치
             </button>
           </div>
         </div>
 
         {/* 시안 생성 에러/로딩 메시지 */}
-        {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
-        {designLoading && <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>}
+        {designError && (
+          <p className="text-red-500 text-sm mt-2">{designError}</p>
+        )}
+        {designLoading && (
+          <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
+        )}
 
         {/* RFP 생성 에러 메시지 */}
         {error && (
@@ -507,8 +547,12 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-4 mt-6">
             {/* ① 목표 설정 및 문제 정의 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold text-gray-600 mb-2">① 목표 설정 및 문제 정의</h2>
-              <p className="font-medium text-gray-600 mb-1">{rfp.target_and_problem.summary}</p>
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ① 목표 설정 및 문제 정의
+              </h2>
+              <p className="font-medium text-gray-600 mb-1">
+                {rfp.target_and_problem.summary}
+              </p>
               <p className="text-sm text-gray-600 whitespace-pre-wrap">
                 {rfp.target_and_problem.details}
               </p>
@@ -516,7 +560,9 @@ export default function Home() {
 
             {/* ② 핵심 기능 제안 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold text-gray-600 mb-2">② 핵심 기능 제안</h2>
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ② 핵심 기능 제안
+              </h2>
               <ul className="space-y-1 text-gray-600 text-sm">
                 {rfp.key_features.map((f, i) => (
                   <li key={i}>
@@ -528,7 +574,9 @@ export default function Home() {
 
             {/* ③ 차별화 포인트 */}
             <section className="bg-white p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold text-gray-600 mb-2">③ 차별화 포인트 & 전략</h2>
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ③ 차별화 포인트 & 전략
+              </h2>
               <ul className="space-y-1 text-gray-600 text-sm">
                 {rfp.differentiation.map((d, i) => (
                   <li key={i}>
@@ -540,7 +588,9 @@ export default function Home() {
 
             {/* ④ 컨셉 & 레퍼런스 키워드 */}
             <section className="bg-white text-gray-600 p-4 rounded-2xl shadow-sm">
-              <h2 className="font-semibold text-gray-600 mb-2">④ 컨셉 & 레퍼런스 키워드</h2>
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ④ 컨셉 & 레퍼런스 키워드
+              </h2>
               <p className="text-sm text-gray-600 mb-2">
                 {rfp.concept_and_references.concept_summary}
               </p>
@@ -555,11 +605,13 @@ export default function Home() {
 
             {/* ⑤ 디자인 및 사업화 프로세스(안) */}
             <section className="text-gray-600 md:col-span-2 space-y-3">
-              <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
+              <h2 className="font-semibold text-gray-600">
+                ⑤ 디자인 및 사업화 프로세스(안)
+              </h2>
               <p className="text-xs text-gray-500">
-                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로 흐르며 전체
-                여정을 한 번에 볼 수 있도록 정리했습니다. 카드들을 가로로 스크롤하면서 각 단계의
-                목표와 해야 할 일을 확인해 보세요.
+                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로
+                흐르며 전체 여정을 한 번에 볼 수 있도록 정리했습니다. 카드들을
+                가로로 스크롤하면서 각 단계의 목표와 해야 할 일을 확인해 보세요.
               </p>
 
               <div className="mt-2 -mx-4 px-4 md:mx-0 md:px-0">
@@ -598,26 +650,43 @@ export default function Home() {
 
             {/* ⑥ 나의 협력 파트너 추천 */}
             <section className="bg-white p-4 text-gray-600 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold text-gray-600 mb-2">⑥ 나의 협력 파트너 추천</h2>
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ⑥ 나의 협력 파트너 추천
+              </h2>
               <ul className="flex flex-wrap gap-2">
                 {rfp.experts_to_meet?.map((e, i) => (
-                  <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
+                  <li
+                    key={i}
+                    className="border rounded-xl px-3 py-2 text-sm bg-white"
+                  >
                     <span className="font-medium">{e.role}</span>{" "}
                     <span className="text-gray-600">— {e.why}</span>
                   </li>
-                )) || <li className="text-sm text-gray-500">추천 전문가 정보가 없습니다.</li>}
+                )) || (
+                  <li className="text-sm text-gray-500">
+                    추천 전문가 정보가 없습니다.
+                  </li>
+                )}
               </ul>
             </section>
 
             {/* ⑦ 전문가 관점 리뷰 */}
             <section className="bg-white p-4 text-gray-600 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold text-gray-600 mb-3">⑦ 전문가 관점 리뷰</h2>
+              <h2 className="font-semibold text-gray-600 mb-3">
+                ⑦ 전문가 관점 리뷰
+              </h2>
               <div className="grid md:grid-cols-2 gap-3 text-gray-600 text-sm">
                 {["pm", "designer", "engineer", "marketer"].map((k) => {
                   const pack = (rfp.expert_reviews as any)?.[k];
                   if (!pack) return null;
                   const label =
-                    k === "pm" ? "PM/기획" : k === "designer" ? "디자이너" : k === "engineer" ? "엔지니어" : "마케터";
+                    k === "pm"
+                      ? "PM/기획"
+                      : k === "designer"
+                      ? "디자이너"
+                      : k === "engineer"
+                      ? "엔지니어"
+                      : "마케터";
                   return (
                     <div key={k} className="rounded-2xl p-4 border">
                       <h4 className="font-semibold mb-2">{label}</h4>
@@ -668,7 +737,8 @@ export default function Home() {
                   <strong>타겟 사용자:</strong> {rfp.visual_rfp.target_users}
                 </p>
                 <p>
-                  <strong>핵심 요구사항:</strong> {rfp.visual_rfp.core_requirements.join(", ")}
+                  <strong>핵심 요구사항:</strong>{" "}
+                  {rfp.visual_rfp.core_requirements.join(", ")}
                 </p>
                 <p>
                   <strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}
@@ -679,17 +749,52 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑨ AI 생성 제품 디자인 시안 */}
+            {/* ⑨ 내가 원하는 비주얼 방향 (선택) */}
+            <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ⑨ 내가 원하는 비주얼 방향 (선택)
+              </h2>
+              <p className="text-xs text-gray-500 mb-2">
+                아래 분위기/톤 중에서 지금 아이디어에 가장 어울리는 것들을 골라
+                주세요. 선택 내용은 이후 AI 시안 생성 프롬프트에 함께 반영됩니다.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {styleOptions.map((opt) => {
+                  const active = styleKeywords.includes(opt.id);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => toggleStyle(opt.id)}
+                      className={
+                        "px-3 py-1 rounded-full border text-xs " +
+                        (active
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-700 border-gray-300")
+                      }
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* ⑩ AI 생성 제품 디자인 시안 */}
             {(designError || designLoading || designImages.length > 0) && (
               <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
                 <h2 className="font-semibold text-gray-600 mb-2">
-                  ⑨ AI 생성 제품 디자인 시안
+                  ⑩ AI 생성 제품 디자인 시안
                 </h2>
 
-                {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
+                {designError && (
+                  <p className="text-red-500 text-sm mt-2">{designError}</p>
+                )}
 
                 {designLoading && (
-                  <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    디자인 시안 생성 중...
+                  </p>
                 )}
 
                 {!!designImages.length && (
