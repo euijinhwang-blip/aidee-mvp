@@ -122,9 +122,25 @@ export default function Home() {
   const [conceptImages, setConceptImages] = useState<string[]>([]);
   const [conceptLoading, setConceptLoading] = useState(false);
   const [conceptError, setConceptError] = useState<string | null>(null);
-  const [selectedConceptIndex, setSelectedConceptIndex] = useState<number | null>(
-    null
+  const [selectedConceptIndexes, setSelectedConceptIndexes] = useState<number[]>(
+    []
   );
+
+  // 카드별 사용자 메모
+  const [userNotes, setUserNotes] = useState<{
+    target_problem: string;
+    key_features: string;
+    differentiation: string;
+    concept: string;
+  }>({
+    target_problem: "",
+    key_features: "",
+    differentiation: "",
+    concept: "",
+  });
+
+  // 컨셉 이미지 생성에 사용된 프롬프트 (최종 디자인 프롬프트에 반영)
+  const [conceptPrompt, setConceptPrompt] = useState<string | null>(null);
 
   const processCaptions = useMemo(
     () => ({
@@ -141,6 +157,13 @@ export default function Home() {
     fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
   }, []);
 
+  // 컨셉 이미지 선택/해제
+  function toggleSelectConcept(idx: number) {
+    setSelectedConceptIndexes((prev) =>
+      prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+    );
+  }
+
   // RFP 생성
   async function handleGenerate() {
     setLoading(true);
@@ -148,12 +171,19 @@ export default function Home() {
     setRfp(null);
     setEmailMsg("");
 
-    // 디자인/컨셉 시안 초기화
+    // 디자인/컨셉 시안 & 메모 초기화
     setDesignImages([]);
     setDesignError("");
     setConceptImages([]);
     setConceptError(null);
-    setSelectedConceptIndex(null);
+    setSelectedConceptIndexes([]);
+    setConceptPrompt(null);
+    setUserNotes({
+      target_problem: "",
+      key_features: "",
+      differentiation: "",
+      concept: "",
+    });
 
     // 타이머 초기화
     if (timerRef.current) clearInterval(timerRef.current);
@@ -278,6 +308,18 @@ export default function Home() {
     setDesignImages([]);
 
     try {
+      const userNotesText = [
+        userNotes.target_problem &&
+          `Problem/goal notes: ${userNotes.target_problem}`,
+        userNotes.key_features &&
+          `Feature notes: ${userNotes.key_features}`,
+        userNotes.differentiation &&
+          `Differentiation notes: ${userNotes.differentiation}`,
+        userNotes.concept && `Visual concept notes: ${userNotes.concept}`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
       const res = await fetch("/api/design-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -285,6 +327,8 @@ export default function Home() {
           idea,
           rfp,
           provider: "dalle",
+          conceptPrompt: conceptPrompt ?? undefined,
+          userNotesText: userNotesText || undefined,
         }),
       });
 
@@ -312,7 +356,7 @@ export default function Home() {
     }
   }
 
-  // 컨셉 / 비주얼 방향 이미지 (Stable Diffusion)
+  // 컨셉 / 비주얼 방향 이미지 (Stable Diffusion via /api/concept-images)
   async function handleGenerateConceptImages() {
     if (!rfp) {
       setConceptError("먼저 RFP를 생성해 주세요.");
@@ -322,16 +366,20 @@ export default function Home() {
     setConceptError(null);
     setConceptLoading(true);
     setConceptImages([]);
-    setSelectedConceptIndex(null);
+    setSelectedConceptIndexes([]);
+    setConceptPrompt(null);
 
     try {
-      const res = await fetch("/api/design-images", {
+      const conceptNotes = userNotes.concept
+        ? `Concept notes: ${userNotes.concept}`
+        : "";
+
+      const res = await fetch("/api/concept-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          idea,
           rfp,
-          provider: "stability",
+          userNotesText: conceptNotes || undefined,
         }),
       });
 
@@ -341,6 +389,7 @@ export default function Home() {
 
       const images: string[] = data.images || [];
       setConceptImages(images);
+      setConceptPrompt(data.conceptPrompt || null);
 
       await fetch("/api/metrics/design", {
         method: "POST",
@@ -553,6 +602,25 @@ export default function Home() {
               <p className="text-sm text-gray-600 whitespace-pre-wrap">
                 {rfp.target_and_problem.details}
               </p>
+
+              {/* 사용자 메모 입력 */}
+              <div className="mt-3">
+                <label className="text-xs text-gray-500 block mb-1">
+                  추가하고 싶은 점이 있나요?
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
+                  placeholder="예: 실제로 겪고 있는 상황이나 더 강조하고 싶은 문제를 적어 주세요."
+                  value={userNotes.target_problem}
+                  onChange={(e) =>
+                    setUserNotes((prev) => ({
+                      ...prev,
+                      target_problem: e.target.value,
+                    }))
+                  }
+                />
+              </div>
             </section>
 
             {/* ② 핵심 기능 제안 */}
@@ -567,6 +635,24 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+
+              <div className="mt-3">
+                <label className="text-xs text-gray-500 block mb-1">
+                  추가하고 싶은 기능/제안이 있나요?
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
+                  placeholder="예: 꼭 포함하고 싶은 기능이나 제외하고 싶은 기능을 적어 주세요."
+                  value={userNotes.key_features}
+                  onChange={(e) =>
+                    setUserNotes((prev) => ({
+                      ...prev,
+                      key_features: e.target.value,
+                    }))
+                  }
+                />
+              </div>
             </section>
 
             {/* ③ 차별화 포인트 */}
@@ -581,6 +667,24 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+
+              <div className="mt-3">
+                <label className="text-xs text-gray-500 block mb-1">
+                  우리만의 차별점에 대해 더 하고 싶은 말이 있나요?
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
+                  placeholder="예: 경쟁사와 비교했을 때 더 강조하고 싶은 부분을 적어 주세요."
+                  value={userNotes.differentiation}
+                  onChange={(e) =>
+                    setUserNotes((prev) => ({
+                      ...prev,
+                      differentiation: e.target.value,
+                    }))
+                  }
+                />
+              </div>
             </section>
 
             {/* ④ 컨셉 & 레퍼런스 키워드 */}
@@ -597,6 +701,24 @@ export default function Home() {
                     {k}
                   </span>
                 ))}
+              </div>
+
+              <div className="mt-3">
+                <label className="text-xs text-gray-500 block mb-1">
+                  비주얼/컨셉에 대해 더 남기고 싶은 메모가 있나요?
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-600"
+                  placeholder='예: "좀 더 미니멀하고 차분한 톤이면 좋겠어요"처럼 적어 주세요.'
+                  value={userNotes.concept}
+                  onChange={(e) =>
+                    setUserNotes((prev) => ({
+                      ...prev,
+                      concept: e.target.value,
+                    }))
+                  }
+                />
               </div>
             </section>
 
@@ -781,9 +903,8 @@ export default function Home() {
               </div>
 
               <p className="text-xs text-gray-500 mb-2">
-                컨셉 요약과 키워드를 기반으로 Stable Diffusion이 생성한
-                비주얼 레퍼런스입니다. 마음에 드는 분위기를 선택하면, 이후
-                디자인 방향을 잡는 데 참고할 수 있습니다.
+                컨셉 요약과 키워드를 기반으로 생성한 비주얼 레퍼런스입니다. 마음에
+                드는 이미지를 선택하면, 디자인시안의 비주얼 방향에 적용됩니다.
               </p>
 
               {conceptError && (
@@ -792,37 +913,38 @@ export default function Home() {
 
               {!!conceptImages.length && (
                 <div className="mt-3 grid grid-cols-3 gap-2">
-                  {conceptImages.map((url, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() =>
-                        setSelectedConceptIndex((prev) =>
-                          prev === idx ? null : idx
-                        )
-                      }
-                      className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
-                        selectedConceptIndex === idx
-                          ? "ring-2 ring-blue-500 border-blue-500"
-                          : "border-gray-200"
-                      }`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={url}
-                        alt={`concept-${idx}`}
-                        className="w-full h-28 object-cover"
-                      />
-                    </button>
-                  ))}
+                  {conceptImages.map((url, idx) => {
+                    const selected = selectedConceptIndexes.includes(idx);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => toggleSelectConcept(idx)}
+                        className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
+                          selected ? "ring-2 ring-gray-900 border-gray-900" : "border-gray-200"
+                        }`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={url}
+                          alt={`concept-${idx}`}
+                          className="w-full h-28 object-cover"
+                        />
+                        {selected && (
+                          <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                            선택
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
-              {selectedConceptIndex !== null && (
-                <p className="mt-2 text-xs text-blue-600">
-                  선택된 컨셉 이미지 #{selectedConceptIndex + 1}를 기준으로
-                  비주얼 방향을 잡을 수 있습니다. (향후 DALL·E 프롬프트에
-                  반영 예정)
+              {!!conceptImages.length && (
+                <p className="mt-2 text-[11px] text-gray-500">
+                  선택된 이미지: {selectedConceptIndexes.length}개 · 선택된 이미지는
+                  3D 렌더 디자인 시안 프롬프트의 비주얼 방향에 반영됩니다.
                 </p>
               )}
             </section>

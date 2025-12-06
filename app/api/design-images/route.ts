@@ -26,7 +26,6 @@ async function logMetric(
 
 // ─────────────────────────────────────────────
 // RFP 텍스트에서 제품 설명 스니펫 추출
-//  - 목표 설정 & 문제 정의(summary + details)
 // ─────────────────────────────────────────────
 function extractProblemSnippet(rfp: any): string {
   const summary = (rfp?.target_and_problem?.summary ?? "").trim();
@@ -43,9 +42,15 @@ function extractProblemSnippet(rfp: any): string {
 }
 
 // ─────────────────────────────────────────────
-// 최종 제품 렌더용 프롬프트 (DALL·E)
+// 최종 제품 디자인용 프롬프트
+//  - 사람/배경보다 '제품'에 포커스
+//  - userNotes / conceptPrompt 반영
 // ─────────────────────────────────────────────
-function buildDesignPrompt(idea: string, rfp: any): string {
+function buildDesignPrompt(
+  idea: string,
+  rfp: any,
+  options?: { conceptPrompt?: string; userNotesText?: string }
+): string {
   const problem = extractProblemSnippet(rfp);
 
   const title: string = rfp?.visual_rfp?.project_title ?? "";
@@ -60,87 +65,36 @@ function buildDesignPrompt(idea: string, rfp: any): string {
     category = "lighting product";
   }
 
-  const lines = [
-    `High-quality industrial ${category} design render, 3D product visualization, studio lighting, clean background.`,
+  const lines: string[] = [
+    `High-quality industrial ${category} design, 3D product visualization, studio lighting, clean neutral background.`,
     idea && `Product idea: ${idea}`,
     problem && `The product is designed to solve: ${problem}`,
+  ];
+
+  if (options?.conceptPrompt) {
+    lines.push(
+      `Visual direction: reflect the mood, color palette, and composition of the selected reference images. ${options.conceptPrompt}`
+    );
+  }
+
+  if (options?.userNotesText) {
+    lines.push(
+      `Additional design notes from the creator (must be respected): ${options.userNotesText}`
+    );
+  }
+
+  lines.push(
     "Focus only on the product itself, isolated object shot.",
     "No people, no human body, no faces, no hands.",
-    "No text, no UI screenshot, no logo, no watermark.",
-    "Plain neutral background, centered product, photorealistic materials, detailed industrial design concept.",
-  ].filter(Boolean);
+    "No text, no UI screenshot, no logo, no watermark."
+  );
 
-  return lines.join(" ");
-}
-
-// ─────────────────────────────────────────────
-// 비주얼 방향용 프롬프트 (Stable Diffusion)
-//  - 컨셉 요약 + 키워드 기반
-// ─────────────────────────────────────────────
-function buildConceptPrompt(rfp: any): string {
-  const conceptSummary =
-    (rfp?.concept_and_references?.concept_summary ?? "").trim();
-  const keywords: string[] =
-    rfp?.concept_and_references?.reference_keywords ?? [];
-
-  const parts = [
-    conceptSummary && `Concept: ${conceptSummary}`,
-    keywords.length
-      ? `Visual keywords: ${keywords.join(", ")}`
-      : undefined,
-    "Focus on overall mood, style, color palette and lighting rather than exact product details.",
-  ].filter(Boolean);
-
-  return parts.join("\n");
-}
-
-// ─────────────────────────────────────────────
-// 프롬프트를 영어로 번역 (가능하면)
-//  - Stable Diffusion용
-// ─────────────────────────────────────────────
-async function translateToEnglishIfPossible(text: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || !text.trim()) return text;
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a translator for image prompts. Translate the following product design brief into a concise English prompt for an image generation model. Output only the English prompt.",
-          },
-          { role: "user", content: text },
-        ],
-      }),
-    });
-
-    const json = await res.json();
-    if (!res.ok) {
-      console.error("[translateToEnglish] error:", json);
-      return text;
-    }
-
-    const content = json.choices?.[0]?.message?.content;
-    if (typeof content === "string" && content.trim()) {
-      return content.trim();
-    }
-    return text;
-  } catch (e) {
-    console.error("[translateToEnglish] unexpected error:", e);
-    return text;
-  }
+  return lines.filter(Boolean).join(" ");
 }
 
 // ─────────────────────────────────────────────
 // DALL·E (OpenAI) - 3D 렌더 이미지
+//  - response_format 제거 (Unknown parameter 에러 방지)
 // ─────────────────────────────────────────────
 async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -159,7 +113,7 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
       prompt,
       n,
       size: "1024x1024",
-      response_format: "b64_json",
+      // ⚠️ response_format 제거 → 기본 url 반환
     }),
   });
 
@@ -176,7 +130,9 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   const images: string[] = [];
   if (Array.isArray(json.data)) {
     for (const d of json.data) {
-      if (d?.b64_json) {
+      if (d?.url) {
+        images.push(d.url);
+      } else if (d?.b64_json) {
         images.push(`data:image/png;base64,${d.b64_json}`);
       }
     }
@@ -190,31 +146,26 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
 }
 
 // ─────────────────────────────────────────────
-// Stable Diffusion (Stability AI) - 컨셉 / 비주얼 방향
+// Stable Diffusion (Stability AI) - 컨셉 스케치 / 비주얼 방향
+//  - 허용 사이즈 중 1024x1024 사용 (에러 해결)
 // ─────────────────────────────────────────────
-async function generateWithStability(
-  prompt: string,
-  n: number
-): Promise<string[]> {
+async function generateWithStability(prompt: string, n: number): Promise<string[]> {
   const apiKey = process.env.STABILITY_API_KEY;
   if (!apiKey) {
     throw new Error("STABILITY_API_KEY 환경변수가 없습니다.");
   }
-
-  // 영어로 번역
-  const englishPrompt = await translateToEnglishIfPossible(prompt);
 
   const url =
     "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image";
 
   const body = {
     steps: 30,
-    width: 768,
-    height: 768,
+    width: 1024,
+    height: 1024, // ✅ 768x768 → 1024x1024 로 변경
     cfg_scale: 7,
     samples: n,
     text_prompts: [
-      { text: englishPrompt, weight: 1 },
+      { text: prompt, weight: 1 },
       {
         text: "blurry, bad quality, low resolution, text, logo, watermark, human, people, body, face, hands",
         weight: -1,
@@ -265,17 +216,20 @@ async function generateWithStability(
 //    {
 //      idea: string,
 //      rfp: any,
-//      provider?: "stability" | "dalle"
+//      provider: "dalle" | "stability",
+//      conceptPrompt?: string,       // 선택된 컨셉 이미지 기반 문장
+//      userNotesText?: string        // 카드에 사용자가 적은 메모 통합
 //    }
-//  - response: { images: string[] }
 // ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
-    const provider =
-      (body?.provider as "stability" | "dalle" | undefined) ?? "dalle";
+    const provider: "dalle" | "stability" =
+      (body?.provider as "dalle" | "stability") ?? "dalle";
+    const conceptPrompt: string | undefined = body?.conceptPrompt;
+    const userNotesText: string | undefined = body?.userNotesText;
 
     if (!idea || typeof idea !== "string") {
       return NextResponse.json(
@@ -291,25 +245,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // provider에 따라 다른 프롬프트 사용
-      const prompt =
-      provider === "stability"
-        ? buildConceptPrompt(rfp) // 비주얼 방향(컨셉)
-        : buildDesignPrompt(idea, rfp); // 최종 제품 렌더
+    const prompt = buildDesignPrompt(idea, rfp, {
+      conceptPrompt,
+      userNotesText,
+    });
 
     let images: string[] = [];
-    // 🔧 타입을 string 으로 넓게 선언
     let providerName: string = provider;
 
     if (provider === "dalle") {
-      images = await generateWithDalle(prompt, 3); // 3장
+      images = await generateWithDalle(prompt, 3); // 3D 렌더 3장
       providerName = "dalle_gpt-image-1";
     } else {
-      images = await generateWithStability(prompt, 6); // 컨셉용 6장 정도
+      images = await generateWithStability(prompt, 6); // 컨셉용
       providerName = "stability_sdxl_concept";
     }
 
-    // 메트릭 기록
     await logMetric(
       "design",
       {
@@ -325,7 +276,6 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json({ images }, { status: 200 });
-
   } catch (err: any) {
     console.error("[design-images] Unexpected error:", err);
     return NextResponse.json(
