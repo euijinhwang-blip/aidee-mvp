@@ -398,12 +398,22 @@ export default function Home() {
               .filter(Boolean)
           : [];
 
+      // 🔹 여기서부터 rfpLite로 축약해서 전송
+      const rfpLite = rfp
+        ? {
+            id: rfp.id,
+            projectTitle: rfp.visual_rfp?.project_title,
+            problemSummary: rfp.target_and_problem?.summary,
+            problemDetails: rfp.target_and_problem?.details,
+          }
+        : null;
+
       const res = await fetch("/api/design-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idea,
-          rfp,
+          rfp: rfpLite, // ← Lite만 전송
           provider: "dalle",
           conceptPrompt: conceptPrompt ?? undefined,
           userNotesText: userNotesText || undefined,
