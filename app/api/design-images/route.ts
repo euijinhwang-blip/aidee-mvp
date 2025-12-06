@@ -2,6 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+// ---------------------------------------------
+// (선택) body 사이즈를 넉넉하게 – 라우트 핸들러용 설정
+//  - App Router에서도 동작하는 패턴 (Node runtime)
+// ---------------------------------------------
+export const runtime = "nodejs";
+
 // ─────────────────────────────────────────────
 // 공통: metrics 기록
 // ─────────────────────────────────────────────
@@ -25,11 +31,44 @@ async function logMetric(
 }
 
 // ─────────────────────────────────────────────
-// RFP 텍스트에서 제품 설명 스니펫 추출
+// RFP Lite 타입 정의 (payload 줄이기용)
 // ─────────────────────────────────────────────
-function extractProblemSnippet(rfp: any): string {
-  const summary = (rfp?.target_and_problem?.summary ?? "").trim();
-  const details = (rfp?.target_and_problem?.details ?? "").trim();
+type RfpLite = {
+  id?: string;
+  projectTitle?: string;
+  problemSummary?: string;
+  problemDetails?: string;
+};
+
+// full RFP or Lite RFP를 받아서 RfpLite로 정리
+function toRfpLite(raw: any): RfpLite {
+  if (!raw || typeof raw !== "object") return {};
+
+  // 1) 기존처럼 전체 RFP 객체가 온 경우
+  if (raw.visual_rfp || raw.target_and_problem) {
+    return {
+      id: raw.id,
+      projectTitle: raw.visual_rfp?.project_title,
+      problemSummary: raw.target_and_problem?.summary,
+      problemDetails: raw.target_and_problem?.details,
+    };
+  }
+
+  // 2) 이미 Lite 형태로 온 경우
+  return {
+    id: raw.id,
+    projectTitle: raw.projectTitle,
+    problemSummary: raw.problemSummary,
+    problemDetails: raw.problemDetails,
+  };
+}
+
+// ─────────────────────────────────────────────
+// RFP 텍스트에서 제품 설명 스니펫 추출 (Lite 기준)
+// ─────────────────────────────────────────────
+function extractProblemSnippetLite(rfpLite: RfpLite): string {
+  const summary = (rfpLite.problemSummary ?? "").trim();
+  const details = (rfpLite.problemDetails ?? "").trim();
   let combined = [summary, details].filter(Boolean).join(" ");
 
   if (!combined) return "";
@@ -45,15 +84,16 @@ function extractProblemSnippet(rfp: any): string {
 // 최종 제품 디자인용 프롬프트
 //  - 사람/배경보다 '제품'에 포커스
 //  - userNotes / conceptPrompt 반영
+//  - RfpLite만 사용 → 프론트 payload 최소화 가능
 // ─────────────────────────────────────────────
 function buildDesignPrompt(
   idea: string,
-  rfp: any,
+  rfpLite: RfpLite,
   options?: { conceptPrompt?: string; userNotesText?: string }
 ): string {
-  const problem = extractProblemSnippet(rfp);
+  const problem = extractProblemSnippetLite(rfpLite);
 
-  const title: string = rfp?.visual_rfp?.project_title ?? "";
+  const title: string = rfpLite.projectTitle ?? "";
   const lowerTitle = title.toLowerCase();
 
   let category = "physical product";
@@ -113,11 +153,16 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
       prompt,
       n,
       size: "1024x1024",
-      // ⚠️ response_format 제거 → 기본 url 반환
+      // response_format 생략 → 기본 url
     }),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(async () => {
+    const text = await res.text();
+    console.error("[DALL·E] non-JSON error body:", text);
+    throw new Error(text || `DALL·E 생성 실패 (status ${res.status})`);
+  });
+
   if (!res.ok) {
     console.error("[DALL·E] error:", json);
     throw new Error(
@@ -147,9 +192,11 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
 
 // ─────────────────────────────────────────────
 // Stable Diffusion (Stability AI) - 컨셉 스케치 / 비주얼 방향
-//  - 허용 사이즈 중 1024x1024 사용 (에러 해결)
 // ─────────────────────────────────────────────
-async function generateWithStability(prompt: string, n: number): Promise<string[]> {
+async function generateWithStability(
+  prompt: string,
+  n: number
+): Promise<string[]> {
   const apiKey = process.env.STABILITY_API_KEY;
   if (!apiKey) {
     throw new Error("STABILITY_API_KEY 환경변수가 없습니다.");
@@ -161,7 +208,7 @@ async function generateWithStability(prompt: string, n: number): Promise<string[
   const body = {
     steps: 30,
     width: 1024,
-    height: 1024, // ✅ 768x768 → 1024x1024 로 변경
+    height: 1024,
     cfg_scale: 7,
     samples: n,
     text_prompts: [
@@ -183,7 +230,11 @@ async function generateWithStability(prompt: string, n: number): Promise<string[
     body: JSON.stringify(body),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(async () => {
+    const text = await res.text();
+    console.error("[Stability] non-JSON error body:", text);
+    throw new Error(text || `Stable Diffusion 생성 실패 (status ${res.status})`);
+  });
 
   if (!res.ok) {
     console.error("[Stability] error:", json);
@@ -212,20 +263,28 @@ async function generateWithStability(prompt: string, n: number): Promise<string[
 
 // ─────────────────────────────────────────────
 // POST /api/design-images
-//  - body:
+//  - body 예시 (리팩터링 후 권장):
 //    {
 //      idea: string,
-//      rfp: any,
+//      rfp: {
+//        id?: string;
+//        projectTitle?: string;
+//        problemSummary?: string;
+//        problemDetails?: string;
+//      },
 //      provider: "dalle" | "stability",
-//      conceptPrompt?: string,       // 선택된 컨셉 이미지 기반 문장
-//      userNotesText?: string        // 카드에 사용자가 적은 메모 통합
+//      conceptPrompt?: string,
+//      userNotesText?: string
 //    }
+//
+//  - 예전처럼 전체 RFP를 보내도 동작함
 // ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
     const idea: string | undefined = body?.idea;
-    const rfp: any = body?.rfp;
+    const rawRfp = body?.rfp;
     const provider: "dalle" | "stability" =
       (body?.provider as "dalle" | "stability") ?? "dalle";
     const conceptPrompt: string | undefined = body?.conceptPrompt;
@@ -238,14 +297,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!rfp) {
+    if (!rawRfp) {
       return NextResponse.json(
         { error: "RFP 데이터가 없습니다. 먼저 RFP를 생성해 주세요." },
         { status: 400 }
       );
     }
 
-    const prompt = buildDesignPrompt(idea, rfp, {
+    // 🔹 여기서 full RFP든 Lite든 모두 RfpLite 형태로 정리
+    const rfpLite = toRfpLite(rawRfp);
+
+    const prompt = buildDesignPrompt(idea, rfpLite, {
       conceptPrompt,
       userNotesText,
     });
@@ -265,7 +327,7 @@ export async function POST(req: NextRequest) {
       "design",
       {
         provider: providerName,
-        rfpId: rfp?.id ?? null,
+        rfpId: rfpLite.id ?? null,
         idea,
         promptSource:
           provider === "stability"
