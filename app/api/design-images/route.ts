@@ -26,7 +26,6 @@ async function logMetric(
 
 // ─────────────────────────────────────────────
 // RFP 텍스트에서 제품 설명 스니펫 추출
-//  - 목표 설정 & 문제 정의(summary + details)
 // ─────────────────────────────────────────────
 function extractProblemSnippet(rfp: any): string {
   const summary = (rfp?.target_and_problem?.summary ?? "").trim();
@@ -34,17 +33,13 @@ function extractProblemSnippet(rfp: any): string {
   let combined = [summary, details].filter(Boolean).join(" ");
 
   if (!combined) return "";
-
   const MAX_LEN = 220;
-  if (combined.length > MAX_LEN) {
-    combined = combined.slice(0, MAX_LEN) + "...";
-  }
+  if (combined.length > MAX_LEN) combined = combined.slice(0, MAX_LEN) + "...";
   return combined;
 }
 
 // ─────────────────────────────────────────────
-// 최종 이미지 프롬프트 생성
-//  - 사람/배경보다 '제품'에 포커스
+// 최종 이미지 프롬프트 생성 (제품 중심)
 // ─────────────────────────────────────────────
 function buildDesignPrompt(idea: string, rfp: any): string {
   const problem = extractProblemSnippet(rfp);
@@ -75,14 +70,13 @@ function buildDesignPrompt(idea: string, rfp: any): string {
 }
 
 // ─────────────────────────────────────────────
-// DALL·E (OpenAI) - 브랜딩 / Key visual 용
-//  - provider: "dalle"
-//  - env: OPENAI_API_KEY
+// DALL·E (브랜딩 / Key visual)
 // ─────────────────────────────────────────────
 async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error("OPENAI_API_KEY 환경변수가 없습니다.");
+    console.error("[DALL·E] Missing OPENAI_API_KEY");
+    throw new Error("브랜딩용 이미지 엔진 설정이 아직 완료되지 않았습니다.");
   }
 
   const res = await fetch("https://api.openai.com/v1/images/generations", {
@@ -96,6 +90,7 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
       prompt,
       n,
       size: "1024x1024",
+      // 일부 환경에서 response_format 지원이 안 될 수 있어서 제거해도 됨
       response_format: "b64_json",
     }),
   });
@@ -106,7 +101,7 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
     throw new Error(
       json?.error?.message ||
         json?.error ||
-        `DALL·E 생성 실패 (status ${res.status})`
+        "브랜딩용 이미지를 생성하는 중 문제가 발생했습니다."
     );
   }
 
@@ -120,16 +115,14 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   }
 
   if (!images.length) {
-    throw new Error("DALL·E에서 이미지 데이터를 받지 못했습니다.");
+    throw new Error("브랜딩용 이미지 데이터를 받지 못했습니다.");
   }
 
   return images;
 }
 
 // ─────────────────────────────────────────────
-// Stable Diffusion (Stability AI) - 컨셉 스케치 / 일러스트
-//  - provider: "stability"
-//  - env: STABILITY_API_KEY
+// Stable Diffusion (컨셉 스케치 / 일러스트)
 // ─────────────────────────────────────────────
 async function generateWithStability(
   prompt: string,
@@ -137,7 +130,8 @@ async function generateWithStability(
 ): Promise<string[]> {
   const apiKey = process.env.STABILITY_API_KEY;
   if (!apiKey) {
-    throw new Error("STABILITY_API_KEY 환경변수가 없습니다.");
+    console.error("[Stability] Missing STABILITY_API_KEY");
+    throw new Error("컨셉 스케치용 이미지 엔진 설정이 아직 완료되지 않았습니다.");
   }
 
   const url =
@@ -175,7 +169,7 @@ async function generateWithStability(
     throw new Error(
       json?.message ||
         json?.error ||
-        `Stable Diffusion 생성 실패 (status ${res.status})`
+        "컨셉 스케치 이미지를 생성하는 중 문제가 발생했습니다."
     );
   }
 
@@ -189,22 +183,20 @@ async function generateWithStability(
   }
 
   if (!images.length) {
-    throw new Error("Stable Diffusion에서 이미지 데이터를 받지 못했습니다.");
+    throw new Error("컨셉 스케치 이미지 데이터를 받지 못했습니다.");
   }
 
   return images;
 }
 
 // ─────────────────────────────────────────────
-// Meshi AI Text-to-3D Preview - 제품처럼 보이는 3D 렌더 썸네일
-//  - provider: "meshy"
-//  - env: MESHY_API_KEY
-//  - 내부적으로 3D 모델 생성 후 thumbnail_url을 이미지로 사용
+// Meshy 3D Preview (3D/실사 느낌 썸네일)
 // ─────────────────────────────────────────────
 async function generateWithMeshy(prompt: string): Promise<string[]> {
   const apiKey = process.env.MESHY_API_KEY;
   if (!apiKey) {
-    throw new Error("MESHY_API_KEY 환경변수가 없습니다.");
+    console.error("[Meshy] Missing MESHY_API_KEY");
+    throw new Error("3D/실사용 이미지 엔진 설정이 아직 완료되지 않았습니다.");
   }
 
   // 1) preview task 생성
@@ -228,26 +220,22 @@ async function generateWithMeshy(prompt: string): Promise<string[]> {
   const createJson = await createRes.json();
   if (!createRes.ok) {
     console.error("[Meshy] create error:", createJson);
-    throw new Error(
-      createJson?.error ||
-        createJson?.message ||
-        `Meshy preview task 생성 실패 (status ${createRes.status})`
-    );
+    throw new Error("3D/실사용 이미지를 준비하는 중 문제가 발생했습니다.");
   }
 
   const taskId: string | undefined = createJson?.result;
   if (!taskId) {
-    throw new Error("Meshy preview task id를 받지 못했습니다.");
+    throw new Error("3D/실사용 작업 id를 받지 못했습니다.");
   }
 
-  // 2) task 완료까지 폴링 (최대 ~60초)
+  // 2) status 폴링
   const start = Date.now();
   const TIMEOUT_MS = 60_000;
   const INTERVAL_MS = 3_000;
 
   while (true) {
     if (Date.now() - start > TIMEOUT_MS) {
-      throw new Error("Meshy 작업이 제한 시간 내에 완료되지 않았습니다.");
+      throw new Error("3D/실사 작업이 제한 시간 내에 완료되지 않았습니다.");
     }
 
     const statusRes = await fetch(
@@ -263,55 +251,38 @@ async function generateWithMeshy(prompt: string): Promise<string[]> {
     const statusJson = await statusRes.json();
     if (!statusRes.ok) {
       console.error("[Meshy] status error:", statusJson);
-      throw new Error(
-        statusJson?.error ||
-          statusJson?.message ||
-          `Meshy status 조회 실패 (status ${statusRes.status})`
-      );
+      throw new Error("3D/실사 작업 상태를 불러오는 중 문제가 발생했습니다.");
     }
 
     const status = statusJson?.status;
     if (status === "SUCCEEDED") {
       const thumb: string | undefined = statusJson?.thumbnail_url;
       if (!thumb) {
-        throw new Error("Meshy 응답에 thumbnail_url이 없습니다.");
+        throw new Error("3D/실사 응답에 썸네일 이미지가 없습니다.");
       }
-      // 썸네일 URL 하나를 이미지로 반환
       return [thumb];
     }
     if (status === "FAILED" || status === "CANCELED") {
       throw new Error(
-        `Meshy 작업 실패 (status=${status}, message=${
-          statusJson?.task_error?.message ?? ""
-        })`
+        `3D/실사 작업이 실패했습니다. (status=${status})`
       );
     }
 
-    // 아직 PENDING / RUNNING → 잠깐 대기 후 재시도
     await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
   }
 }
 
 // ─────────────────────────────────────────────
 // POST /api/design-images
-//  - body:
-//    {
-//      idea: string,
-//      rfp: any,
-//      provider?: "meshy" | "stability" | "dalle"   // 선택
-//    }
-//  - response: { images: string[] }
 // ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const idea: string | undefined = body?.idea;
     const rfp: any = body?.rfp;
-
-    type Provider = "meshy" | "stability" | "dalle";
-
-    const provider: Provider =
-      (body?.provider as Provider | undefined) ?? "meshy"; // 기본은 Meshi(제품 렌더)
+    const provider =
+      (body?.provider as "meshy" | "stability" | "dalle" | undefined) ??
+      "meshy";
 
     if (!idea || typeof idea !== "string") {
       return NextResponse.json(
@@ -329,33 +300,27 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildDesignPrompt(idea, rfp);
 
-    let images: string[] = [];
+       let images: string[] = [];
 
-    // 메트릭용: 공급자(dalle/stability/meshy) + 실제 모델명
-    let providerName: Provider = provider;
-    let modelName = "";
+    // 🔧 타입을 넓게: string 으로 명시해서 어떤 문자열이든 들어갈 수 있게
+    let providerName: string = provider;
 
     if (provider === "dalle") {
       images = await generateWithDalle(prompt, 2);
-      providerName = "dalle";
-      modelName = "gpt-image-1";
+      providerName = "dalle_gpt-image-1";
     } else if (provider === "stability") {
       images = await generateWithStability(prompt, 2);
-      providerName = "stability";
-      modelName = "stable-diffusion-xl-1024-v1-0";
+      providerName = "stability_sdxl";
     } else {
       // 기본: Meshi 3D 프리뷰 썸네일
       images = await generateWithMeshy(prompt);
-      providerName = "meshy";
-      modelName = "text-to-3d-preview";
+      providerName = "meshy_text_to_3d_preview";
     }
 
-    // 메트릭 기록
     await logMetric(
       "design",
       {
         provider: providerName,
-        model: modelName,
         rfpId: rfp?.id ?? null,
         idea,
         promptSource: "rfp_target_problem_product_prompt",

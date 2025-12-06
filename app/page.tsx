@@ -30,8 +30,6 @@ type RFP = {
   expert_reviews?: { pm: ExpertPack; designer: ExpertPack; engineer: ExpertPack; marketer: ExpertPack };
 };
 
-type DesignProvider = "meshy" | "stability" | "dalle";
-
 function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
   if (!phase) return null;
   return (
@@ -92,7 +90,7 @@ export default function Home() {
 
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<any>(null); // 문자열/객체 모두 허용
+  const [error, setError] = useState<any>(null);
   const [emailMsg, setEmailMsg] = useState("");
 
   // 진행 시간(초)
@@ -103,7 +101,9 @@ export default function Home() {
   const [designImages, setDesignImages] = useState<string[]>([]);
   const [designLoading, setDesignLoading] = useState(false);
   const [designError, setDesignError] = useState<any>(null);
-  const [designProvider, setDesignProvider] = useState<DesignProvider>("meshy");
+
+  // 🔥 이미지 엔진 선택 상태 (3D/실사, 컨셉, 브랜딩)
+  const [imageEngine, setImageEngine] = useState<"meshy" | "stability" | "dalle">("meshy");
 
   const processCaptions = useMemo(
     () => ({
@@ -256,7 +256,11 @@ export default function Home() {
       const res = await fetch("/api/design-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, rfp, provider: designProvider }),
+        body: JSON.stringify({
+          idea,
+          rfp,
+          provider: imageEngine, // 🔥 선택한 엔진 함께 전송
+        }),
       });
 
       const data = await res.json();
@@ -265,21 +269,14 @@ export default function Home() {
       const images: string[] = data.images || [];
       setDesignImages(images);
 
-      const modelName =
-        designProvider === "dalle"
-          ? "dalle_gpt-image-1"
-          : designProvider === "stability"
-          ? "stability_sdxl"
-          : "meshy_text_to_3d_preview";
-
       // ✅ 디자인 메트릭 기록
       await fetch("/api/metrics/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           count: images.length,
-          model: modelName,
-          meta: { rfpId: rfp.id, idea, provider: designProvider },
+          model: imageEngine, // 어떤 엔진을 썼는지 기록
+          meta: { rfpId: rfp.id, idea },
         }),
       });
     } catch (e: any) {
@@ -407,85 +404,92 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 상단 버튼 + 진행상황 */}
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !idea}
-            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-          >
-            {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
-          </button>
+        {/* 상단 버튼 + 진행상황 + 이미지 엔진 선택 */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleGenerate}
+              disabled={loading || !idea}
+              className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+            >
+              {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
+            </button>
 
-          <input
-            type="email"
-            placeholder="이메일 주소"
-            className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
-            value={emailTo}
-            onChange={(e) => setEmailTo(e.target.value)}
-          />
-          <button
-            onClick={handleEmail}
-            disabled={!rfp || !emailTo}
-            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
-          >
-            이메일로 받기
-          </button>
+            <input
+              type="email"
+              placeholder="이메일 주소"
+              className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+            />
+            <button
+              onClick={handleEmail}
+              disabled={!rfp || !emailTo}
+              className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
+            >
+              이메일로 받기
+            </button>
 
-          {/* 이미지 엔진 선택 토글 */}
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-xs text-gray-500 mr-1">이미지 엔진:</span>
             <button
-              type="button"
-              onClick={() => setDesignProvider("meshy")}
-              className={`px-3 py-1 rounded-full text-xs border ${
-                designProvider === "meshy"
-                  ? "bg-gray-800 text-white border-gray-800"
-                  : "bg-white text-gray-600"
-              }`}
+              onClick={handleGenerateDesign}
+              disabled={!rfp || designLoading}
+              className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
             >
-              Meshi (3D/실사)
+              {designLoading ? "디자인 시안 생성 중..." : "디자인 시안 생성하기"}
             </button>
-            <button
-              type="button"
-              onClick={() => setDesignProvider("stability")}
-              className={`px-3 py-1 rounded-full text-xs border ${
-                designProvider === "stability"
-                  ? "bg-gray-800 text-white border-gray-800"
-                  : "bg-white text-gray-600"
-              }`}
-            >
-              Stable Diffusion (컨셉)
-            </button>
-            <button
-              type="button"
-              onClick={() => setDesignProvider("dalle")}
-              className={`px-3 py-1 rounded-full text-xs border ${
-                designProvider === "dalle"
-                  ? "bg-gray-800 text-white border-gray-800"
-                  : "bg-white text-gray-600"
-              }`}
-            >
-              DALL·E (브랜딩)
-            </button>
+
+            {loading && (
+              <span className="text-xs text-gray-500">
+                분석 중… {elapsedSec}
+                초 경과
+              </span>
+            )}
+
+            {emailMsg && (
+              <span className="text-sm text-gray-600">{emailMsg}</span>
+            )}
           </div>
 
-          <button
-            onClick={handleGenerateDesign}
-            disabled={!rfp || designLoading}
-            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-          >
-            {designLoading ? "디자인 시안 생성 중..." : "디자인 시안 생성하기"}
-          </button>
+          {/* 이미지 엔진 선택 버튼 */}
+          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+            <span className="text-xs text-gray-500 mr-1">이미지 엔진:</span>
 
-          {loading && (
-            <span className="text-xs text-gray-500">
-              분석 중… {elapsedSec}
-              초 경과
-            </span>
-          )}
+            <button
+              type="button"
+              onClick={() => setImageEngine("meshy")}
+              className={`px-3 py-2 rounded-full border ${
+                imageEngine === "meshy"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white text-gray-700 border-gray-300"
+              }`}
+            >
+              3D/실사 (제품 렌더)
+            </button>
 
-          {emailMsg && <span className="text-sm text-gray-600">{emailMsg}</span>}
+            <button
+              type="button"
+              onClick={() => setImageEngine("stability")}
+              className={`px-3 py-2 rounded-full border ${
+                imageEngine === "stability"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white text-gray-700 border-gray-300"
+              }`}
+            >
+              컨셉 스케치 (컨셉)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setImageEngine("dalle")}
+              className={`px-3 py-2 rounded-full border ${
+                imageEngine === "dalle"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white text-gray-700 border-gray-300"
+              }`}
+            >
+              브랜딩/키 비주얼
+            </button>
+          </div>
         </div>
 
         {/* 시안 생성 에러/로딩 메시지 */}
@@ -681,15 +685,6 @@ export default function Home() {
                 <h2 className="font-semibold text-gray-600 mb-2">
                   ⑨ AI 생성 제품 디자인 시안
                 </h2>
-
-                <p className="text-xs text-gray-500 mb-2">
-                  현재 엔진:{" "}
-                  {designProvider === "meshy"
-                    ? "Meshi · 3D 프리뷰 썸네일"
-                    : designProvider === "stability"
-                    ? "Stable Diffusion · 컨셉 스케치"
-                    : "DALL·E · 브랜딩/Key Visual"}
-                </p>
 
                 {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
 
