@@ -127,6 +127,12 @@ export default function Home() {
     []
   );
 
+  // 컨셉 이미지 생성에 사용된 프롬프트 (최종 디자인 프롬프트에 반영)
+  const [conceptPrompt, setConceptPrompt] = useState<string | null>(null);
+
+  // 비주얼 카테고리 선택 상태
+  const [selectedVisualCategories, setSelectedVisualCategories] = useState<string[]>([]);
+
   // 카드별 사용자 메모
   const [userNotes, setUserNotes] = useState<{
     target_problem: string;
@@ -140,9 +146,6 @@ export default function Home() {
     concept: "",
   });
 
-  // 컨셉 이미지 생성에 사용된 프롬프트 (최종 디자인 프롬프트에 반영)
-  const [conceptPrompt, setConceptPrompt] = useState<string | null>(null);
-
   const processCaptions = useMemo(
     () => ({
       discover: "문제/사용자/맥락을 넓게 탐색하여 ‘무엇을 만들지’를 열어 보는 단계",
@@ -153,6 +156,14 @@ export default function Home() {
     []
   );
 
+  // 비주얼 카테고리 옵션
+  const visualCategoryOptions = [
+    { key: "color", label: "컬러/톤" },
+    { key: "form", label: "형태/스타일" },
+    { key: "space", label: "공간/환경" },
+    { key: "similar", label: "유사 제품/레퍼런스" },
+  ];
+
   // 페이지 최초 방문 기록
   useEffect(() => {
     fetch("/api/metrics/visit", { method: "POST" }).catch(() => {});
@@ -161,6 +172,12 @@ export default function Home() {
   function toggleSelectConcept(idx: number) {
     setSelectedConceptIndexes((prev) =>
       prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+    );
+  }
+
+  function toggleVisualCategory(cat: string) {
+    setSelectedVisualCategories((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
     );
   }
 
@@ -189,6 +206,7 @@ export default function Home() {
     setConceptError(null);
     setSelectedConceptIndexes([]);
     setConceptPrompt(null);
+    setSelectedVisualCategories([]);
     setUserNotes({
       target_problem: "",
       key_features: "",
@@ -391,6 +409,10 @@ export default function Home() {
           userNotesText: userNotesText || undefined,
           selectedConceptImages:
             selectedConceptImages.length > 0 ? selectedConceptImages : undefined,
+          visualCategories:
+            selectedVisualCategories.length > 0
+              ? selectedVisualCategories
+              : undefined,
         }),
       });
 
@@ -442,6 +464,10 @@ export default function Home() {
         body: JSON.stringify({
           rfp,
           userNotesText: conceptNotes || undefined,
+          visualCategories:
+            selectedVisualCategories.length > 0
+              ? selectedVisualCategories
+              : undefined,
         }),
       });
 
@@ -479,11 +505,8 @@ export default function Home() {
     };
   }, []);
 
-  // 🔹 컨셉이미지 9장(최대)만 사용해서 카테고리별로 잘라 쓰기
-  const limitedConceptImages = conceptImages.slice(0, 9);
-  const colorImages = limitedConceptImages.slice(0, 3);
-  const styleImages = limitedConceptImages.slice(3, 6);
-  const envImages = limitedConceptImages.slice(6, 9);
+  // 🔹 컨셉이미지: 최대 18장까지만(6×3줄) 사용
+  const limitedConceptImages = conceptImages.slice(0, 18);
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
@@ -935,9 +958,98 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ⑧ RFP 요약 */}
+            {/* ⑧ 비주얼 방향 탐색 (컨셉 이미지) */}
             <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
-              <h2 className="font-semibold text-gray-600 mb-2">⑧ RFP 요약</h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-semibold text-gray-600">
+                  ⑧ 비주얼 방향 탐색 (컨셉 이미지)
+                </h2>
+                <button
+                  type="button"
+                  onClick={handleGenerateConceptImages}
+                  disabled={conceptLoading}
+                  className="px-3 py-1 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
+                >
+                  {conceptLoading
+                    ? "컨셉 이미지 생성 중..."
+                    : "컨셉 이미지 생성하기"}
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-2">
+                컨셉 요약과 키워드를 기반으로 생성한 비주얼 레퍼런스입니다. 마음에
+                드는 이미지를 선택하면, 디자인시안의 비주얼 방향에 적용됩니다.
+              </p>
+
+              {/* 비주얼 카테고리 선택 */}
+              <div className="flex flex-wrap gap-2 mb-2 text-[11px]">
+                {visualCategoryOptions.map((opt) => {
+                  const active = selectedVisualCategories.includes(opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => toggleVisualCategory(opt.key)}
+                      className={`px-2 py-1 rounded-full border ${
+                        active
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-600 border-gray-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {conceptError && (
+                <p className="text-red-500 text-sm mt-1">{conceptError}</p>
+              )}
+
+              {!!limitedConceptImages.length && (
+                <div className="mt-3">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {limitedConceptImages.map((url, idx) => {
+                      const selected = selectedConceptIndexes.includes(idx);
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => toggleSelectConcept(idx)}
+                          className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
+                            selected
+                              ? "ring-2 ring-gray-900 border-gray-900"
+                              : "border-gray-200"
+                          }`}
+                        >
+                          {/* 작은 정사각형 썸네일 */}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`concept-${idx}`}
+                            className="w-full aspect-square object-cover"
+                          />
+                          {selected && (
+                            <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                              선택
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-gray-500">
+                    선택된 이미지: {selectedConceptIndexes.length}개 · 선택된 이미지는
+                    3D 렌더 디자인 시안 프롬프트의 비주얼 방향에 보조 정보로 반영됩니다.
+                  </p>
+                </div>
+              )}
+            </section>
+
+            {/* ⑨ RFP 요약 */}
+            <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
+              <h2 className="font-semibold text-gray-600 mb-2">⑨ RFP 요약</h2>
               <div className="text-sm text-gray-600 space-y-1">
                 <p>
                   <strong>프로젝트명:</strong> {rfp.visual_rfp.project_title}
@@ -964,7 +1076,7 @@ export default function Home() {
                 </p>
               </div>
 
-              {/* 🔥 RFP 요약 아래에 디자인 시안 생성 버튼 */}
+              {/* RFP 요약 아래에 디자인 시안 생성 버튼 */}
               <div className="mt-4">
                 <button
                   type="button"
@@ -977,168 +1089,10 @@ export default function Home() {
                     : "3D 렌더 이미지 생성"}
                 </button>
                 <p className="mt-1 text-[11px] text-gray-500">
-                  위 RFP 요약 내용을 바탕으로 제품 3D 렌더 이미지를 생성합니다.
+                  위 RFP 요약 내용과 선택한 비주얼 방향을 바탕으로 제품 3D 렌더 이미지를
+                  생성합니다.
                 </p>
               </div>
-            </section>
-
-            {/* ⑨ 비주얼 방향 탐색 (컨셉 이미지) */}
-            <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="font-semibold text-gray-600">
-                  ⑨ 비주얼 방향 탐색 (컨셉 이미지)
-                </h2>
-                <button
-                  type="button"
-                  onClick={handleGenerateConceptImages}
-                  disabled={conceptLoading}
-                  className="px-3 py-1 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
-                >
-                  {conceptLoading
-                    ? "컨셉 이미지 생성 중..."
-                    : "컨셉 이미지 생성하기"}
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-500 mb-2">
-                컨셉 요약과 키워드를 기반으로 생성한 비주얼 레퍼런스입니다. 마음에
-                드는 이미지를 선택하면, 디자인시안의 비주얼 방향에 적용됩니다.
-              </p>
-
-              {conceptError && (
-                <p className="text-red-500 text-sm mt-1">{conceptError}</p>
-              )}
-
-              {!!limitedConceptImages.length && (
-                <div className="mt-3 space-y-4">
-                  {/* 컬러 3장 */}
-                  {colorImages.length > 0 && (
-                    <div>
-                      <p className="text-[11px] text-gray-500 mb-1">
-                        컬러 · 전체적인 색감과 톤
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {colorImages.map((url, idx) => {
-                          const globalIndex = idx; // 0,1,2
-                          const selected =
-                            selectedConceptIndexes.includes(globalIndex);
-                          return (
-                            <button
-                              key={globalIndex}
-                              type="button"
-                              onClick={() => toggleSelectConcept(globalIndex)}
-                              className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
-                                selected
-                                  ? "ring-2 ring-gray-900 border-gray-900"
-                                  : "border-gray-200"
-                              }`}
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={url}
-                                alt={`concept-color-${idx}`}
-                                className="w-full h-40 object-cover"
-                              />
-                              {selected && (
-                                <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                                  선택
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 제품 스타일 3장 */}
-                  {styleImages.length > 0 && (
-                    <div>
-                      <p className="text-[11px] text-gray-500 mb-1">
-                        제품 스타일 · 형태/디테일 분위기
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {styleImages.map((url, idx) => {
-                          const globalIndex = 3 + idx; // 3,4,5
-                          const selected =
-                            selectedConceptIndexes.includes(globalIndex);
-                          return (
-                            <button
-                              key={globalIndex}
-                              type="button"
-                              onClick={() => toggleSelectConcept(globalIndex)}
-                              className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
-                                selected
-                                  ? "ring-2 ring-gray-900 border-gray-900"
-                                  : "border-gray-200"
-                              }`}
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={url}
-                                alt={`concept-style-${idx}`}
-                                className="w-full h-40 object-cover"
-                              />
-                              {selected && (
-                                <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                                  선택
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 사용 환경 3장 */}
-                  {envImages.length > 0 && (
-                    <div>
-                      <p className="text-[11px] text-gray-500 mb-1">
-                        사용 환경 · 제품이 놓일 공간/상황
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {envImages.map((url, idx) => {
-                          const globalIndex = 6 + idx; // 6,7,8
-                          const selected =
-                            selectedConceptIndexes.includes(globalIndex);
-                          return (
-                            <button
-                              key={globalIndex}
-                              type="button"
-                              onClick={() => toggleSelectConcept(globalIndex)}
-                              className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
-                                selected
-                                  ? "ring-2 ring-gray-900 border-gray-900"
-                                  : "border-gray-200"
-                              }`}
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={url}
-                                alt={`concept-env-${idx}`}
-                                className="w-full h-40 object-cover"
-                              />
-                              {selected && (
-                                <span className="absolute top-1 right-1 bg-gray-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                                  선택
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!!limitedConceptImages.length && (
-                <p className="mt-2 text-[11px] text-gray-500">
-                  선택된 이미지: {selectedConceptIndexes.length}개 · 선택된 이미지는
-                  3D 렌더 디자인 시안 프롬프트의 비주얼 방향에 보조 정보로 반영됩니다.
-                </p>
-              )}
             </section>
 
             {/* ⑩ AI 생성 제품 디자인 시안 (DALL·E) */}
