@@ -15,7 +15,10 @@ type RFP = {
   target_and_problem: { summary: string; details: string };
   key_features: { name: string; description: string }[];
   differentiation: { point: string; strategy: string }[];
-  concept_and_references: { concept_summary: string; reference_keywords: string[] };
+  concept_and_references: {
+    concept_summary: string;
+    reference_keywords: string[];
+  };
   visual_rfp: {
     project_title: string;
     background: string;
@@ -27,10 +30,23 @@ type RFP = {
   };
   double_diamond?: { discover: Phase; define: Phase; develop: Phase; deliver: Phase };
   experts_to_meet?: { role: string; why: string }[];
-  expert_reviews?: { pm: ExpertPack; designer: ExpertPack; engineer: ExpertPack; marketer: ExpertPack };
+  expert_reviews?: {
+    pm: ExpertPack & { summary_line?: string };
+    designer: ExpertPack & { summary_line?: string };
+    engineer: ExpertPack & { summary_line?: string };
+    marketer: ExpertPack & { summary_line?: string };
+  };
 };
 
-function PhaseCard({ title, caption, phase }: { title: string; caption: string; phase?: Phase }) {
+function PhaseCard({
+  title,
+  caption,
+  phase,
+}: {
+  title: string;
+  caption: string;
+  phase?: Phase;
+}) {
   if (!phase) return null;
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm space-y-2 h-full">
@@ -97,19 +113,18 @@ export default function Home() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 디자인 시안 관련 상태
+  // 최종 디자인 시안(DALL·E)
   const [designImages, setDesignImages] = useState<string[]>([]);
   const [designLoading, setDesignLoading] = useState(false);
   const [designError, setDesignError] = useState<any>(null);
 
-  // 이미지 엔진 선택 상태
-  const [imageEngine, setImageEngine] = useState<"meshy" | "stability" | "dalle">("meshy");
-
-  // 각 카드별 사용자 메모
-  const [noteTargetProblem, setNoteTargetProblem] = useState("");
-  const [noteKeyFeatures, setNoteKeyFeatures] = useState("");
-  const [noteDifferentiation, setNoteDifferentiation] = useState("");
-  const [noteConcept, setNoteConcept] = useState("");
+  // 컨셉 / 비주얼 방향(Stability)
+  const [conceptImages, setConceptImages] = useState<string[]>([]);
+  const [conceptLoading, setConceptLoading] = useState(false);
+  const [conceptError, setConceptError] = useState<string | null>(null);
+  const [selectedConceptIndex, setSelectedConceptIndex] = useState<number | null>(
+    null
+  );
 
   const processCaptions = useMemo(
     () => ({
@@ -133,9 +148,12 @@ export default function Home() {
     setRfp(null);
     setEmailMsg("");
 
-    // 디자인 시안 초기화
+    // 디자인/컨셉 시안 초기화
     setDesignImages([]);
     setDesignError("");
+    setConceptImages([]);
+    setConceptError(null);
+    setSelectedConceptIndex(null);
 
     // 타이머 초기화
     if (timerRef.current) clearInterval(timerRef.current);
@@ -154,18 +172,10 @@ export default function Home() {
         regulation_focus: regulationFocus,
       };
 
-      // 사용자 메모 (향후 RFP 재생성에 활용할 수 있도록 전달)
-      const userNotes = {
-        target_and_problem: noteTargetProblem || null,
-        key_features: noteKeyFeatures || null,
-        differentiation: noteDifferentiation || null,
-        concept_and_references: noteConcept || null,
-      };
-
       const res = await fetch("/api/aidee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea, survey, user_notes: userNotes }),
+        body: JSON.stringify({ idea, survey }),
       });
 
       const text = await res.text();
@@ -173,7 +183,9 @@ export default function Home() {
       try {
         data = text ? JSON.parse(text) : null;
       } catch {
-        throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120));
+        throw new Error(
+          "서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120)
+        );
       }
 
       if (!res.ok) {
@@ -188,7 +200,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rfpId: (newRfp as any).id,
+          rfpId: newRfp.id,
           meta: {
             surveyUsed:
               !!budget ||
@@ -240,6 +252,7 @@ export default function Home() {
       if (!res.ok) throw new Error(j?.error || "이메일 전송 실패");
       setEmailMsg("이메일을 보냈습니다.");
 
+      // ✅ 이메일 메트릭 기록
       await fetch("/api/metrics/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -253,7 +266,7 @@ export default function Home() {
     }
   }
 
-  // 제품 디자인 이미지 생성 (/api/design-images)
+  // 최종 제품 디자인 이미지 (DALL·E)
   async function handleGenerateDesign() {
     if (!idea || !rfp) {
       setDesignError("먼저 아이디어를 입력하고 RFP를 생성해 주세요.");
@@ -271,7 +284,7 @@ export default function Home() {
         body: JSON.stringify({
           idea,
           rfp,
-          provider: imageEngine,
+          provider: "dalle",
         }),
       });
 
@@ -281,13 +294,14 @@ export default function Home() {
       const images: string[] = data.images || [];
       setDesignImages(images);
 
+      // ✅ 디자인 메트릭 기록
       await fetch("/api/metrics/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           count: images.length,
-          model: imageEngine,
-          meta: { rfpId: rfp.id, idea },
+          model: "dalle_gpt-image-1",
+          meta: { rfpId: rfp.id, idea, kind: "final_render" },
         }),
       });
     } catch (e: any) {
@@ -295,6 +309,55 @@ export default function Home() {
       setDesignError(e?.message || "디자인 시안 생성 중 오류가 발생했습니다.");
     } finally {
       setDesignLoading(false);
+    }
+  }
+
+  // 컨셉 / 비주얼 방향 이미지 (Stable Diffusion)
+  async function handleGenerateConceptImages() {
+    if (!rfp) {
+      setConceptError("먼저 RFP를 생성해 주세요.");
+      return;
+    }
+
+    setConceptError(null);
+    setConceptLoading(true);
+    setConceptImages([]);
+    setSelectedConceptIndex(null);
+
+    try {
+      const res = await fetch("/api/design-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idea,
+          rfp,
+          provider: "stability",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok)
+        throw new Error(data?.error || "컨셉 이미지 생성에 실패했습니다.");
+
+      const images: string[] = data.images || [];
+      setConceptImages(images);
+
+      await fetch("/api/metrics/design", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: images.length,
+          model: "stability_sdxl_concept",
+          meta: { rfpId: rfp.id, idea, kind: "concept_reference" },
+        }),
+      });
+    } catch (e: any) {
+      console.error("concept image error:", e);
+      setConceptError(
+        e?.message || "컨셉 이미지 생성 중 오류가 발생했습니다."
+      );
+    } finally {
+      setConceptLoading(false);
     }
   }
 
@@ -313,8 +376,9 @@ export default function Home() {
         </h1>
 
         <p className="text-sm text-gray-600">
-          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터 디자인 컨셉 도출,
-          수행프로세스, 전문가 가이드, RFP 요약까지 자동으로 정리합니다.
+          제품 아이디어를 입력하고, 예산·기간·시장 정보를 간단히 선택하면 문제 정의부터
+          디자인 컨셉 도출, 수행프로세스, 전문가 가이드, RFP 요약까지 자동으로
+          정리합니다.
         </p>
 
         {/* 아이디어 입력 */}
@@ -328,7 +392,9 @@ export default function Home() {
 
         {/* 설문 영역 */}
         <section className="bg-white p-4 rounded-2xl shadow-sm space-y-3">
-          <h2 className="font-semibold text-gray-600 mb-1 text-sm">간단 설문 · 예산/기간/시장 정보</h2>
+          <h2 className="font-semibold text-gray-600 mb-1 text-sm">
+            간단 설문 · 예산/기간/시장 정보
+          </h2>
           <div className="grid md:grid-cols-2 gap-3 text-sm">
             <div className="space-y-2">
               <label className="block">
@@ -413,107 +479,61 @@ export default function Home() {
               </label>
             </div>
           </div>
-
-          {/* 설문 요약 간단 표시 */}
-          <p className="text-xs text-gray-500 mt-2">
-            예산: {budget || "-"} · 일정: {timeline || "-"} · 우선순위: {priority || "-"} · 리스크 허용도:{" "}
-            {riskTolerance || "-"}
-          </p>
         </section>
 
-        {/* 상단 버튼 + 진행상황 + 이미지 엔진 선택 */}
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !idea}
-              className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-            >
-              {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
-            </button>
+        {/* 상단 버튼 + 진행상황 */}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !idea}
+            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+          >
+            {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
+          </button>
 
-            <input
-              type="email"
-              placeholder="이메일 주소"
-              className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
-              value={emailTo}
-              onChange={(e) => setEmailTo(e.target.value)}
-            />
-            <button
-              onClick={handleEmail}
-              disabled={!rfp || !emailTo}
-              className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
-            >
-              이메일로 받기
-            </button>
+          <input
+            type="email"
+            placeholder="이메일 주소"
+            className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
+            value={emailTo}
+            onChange={(e) => setEmailTo(e.target.value)}
+          />
+          <button
+            onClick={handleEmail}
+            disabled={!rfp || !emailTo}
+            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
+          >
+            이메일로 받기
+          </button>
 
-            <button
-              onClick={handleGenerateDesign}
-              disabled={!rfp || designLoading}
-              className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-            >
-              {designLoading ? "디자인 시안 생성 중..." : "디자인 시안 생성하기"}
-            </button>
+          <button
+            onClick={handleGenerateDesign}
+            disabled={!rfp || designLoading}
+            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
+          >
+            {designLoading ? "디자인 시안 생성 중..." : "3D 렌더 이미지 생성"}
+          </button>
 
-            {loading && (
-              <span className="text-xs text-gray-500">
-                분석 중… {elapsedSec}
-                초 경과
-              </span>
-            )}
+          {loading && (
+            <span className="text-xs text-gray-500">
+              분석 중… {elapsedSec}
+              초 경과
+            </span>
+          )}
 
-            {emailMsg && (
-              <span className="text-sm text-gray-600">{emailMsg}</span>
-            )}
-          </div>
-
-          {/* 이미지 엔진 선택 버튼 */}
-          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-            <span className="text-xs text-gray-500 mr-1">이미지 타입:</span>
-
-            <button
-              type="button"
-              onClick={() => setImageEngine("meshy")}
-              className={`px-3 py-2 rounded-full border ${
-                imageEngine === "meshy"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300"
-              }`}
-            >
-              3D/실사 (제품 렌더)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setImageEngine("stability")}
-              className={`px-3 py-2 rounded-full border ${
-                imageEngine === "stability"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300"
-              }`}
-            >
-              컨셉 스케치 (컨셉)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setImageEngine("dalle")}
-              className={`px-3 py-2 rounded-full border ${
-                imageEngine === "dalle"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300"
-              }`}
-            >
-              3D 렌더 이미지
-            </button>
-          </div>
+          {emailMsg && (
+            <span className="text-sm text-gray-600">{emailMsg}</span>
+          )}
         </div>
 
-        {/* 시안 생성 에러/로딩 메시지 */}
-        {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
-        {designLoading && <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>}
+        {/* 에러/로딩 */}
+        {designError && (
+          <p className="text-red-500 text-sm mt-2">{designError}</p>
+        )}
+        {designLoading && (
+          <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
+        )}
 
-        {/* RFP 생성 에러 메시지 */}
         {error && (
           <div className="text-red-500 text-sm">
             {typeof error === "string" ? error : JSON.stringify(error)}
@@ -523,29 +543,23 @@ export default function Home() {
         {rfp && (
           <div className="grid md:grid-cols-2 gap-4 mt-6">
             {/* ① 목표 설정 및 문제 정의 */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
-              <h2 className="font-semibold text-gray-600 mb-1">① 목표 설정 및 문제 정의</h2>
-              <p className="font-medium text-gray-600 mb-1">{rfp.target_and_problem.summary}</p>
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ① 목표 설정 및 문제 정의
+              </h2>
+              <p className="font-medium text-gray-600 mb-1">
+                {rfp.target_and_problem.summary}
+              </p>
               <p className="text-sm text-gray-600 whitespace-pre-wrap">
                 {rfp.target_and_problem.details}
               </p>
-
-              {/* 사용자 메모 입력 */}
-              <div className="mt-3">
-                <p className="text-xs text-gray-500 mb-1">추가하고 싶은 점이 있나요?</p>
-                <textarea
-                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-700 bg-gray-50"
-                  rows={2}
-                  placeholder="예: 타겟을 더 구체화하고 싶은 내용, 문제 정의에 빠진 점 등"
-                  value={noteTargetProblem}
-                  onChange={(e) => setNoteTargetProblem(e.target.value)}
-                />
-              </div>
             </section>
 
             {/* ② 핵심 기능 제안 */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
-              <h2 className="font-semibold text-gray-600 mb-1">② 핵심 기능 제안</h2>
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ② 핵심 기능 제안
+              </h2>
               <ul className="space-y-1 text-gray-600 text-sm">
                 {rfp.key_features.map((f, i) => (
                   <li key={i}>
@@ -553,22 +567,13 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-
-              <div className="mt-3">
-                <p className="text-xs text-gray-500 mb-1">추가하고 싶은 기능이나 빼고 싶은 기능이 있나요?</p>
-                <textarea
-                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-700 bg-gray-50"
-                  rows={2}
-                  placeholder="예: 꼭 필요하다고 생각하는 기능, 굳이 필요 없다고 느끼는 기능 등"
-                  value={noteKeyFeatures}
-                  onChange={(e) => setNoteKeyFeatures(e.target.value)}
-                />
-              </div>
             </section>
 
             {/* ③ 차별화 포인트 */}
-            <section className="bg-white p-4 rounded-2xl shadow-sm space-y-2">
-              <h2 className="font-semibold text-gray-600 mb-1">③ 차별화 포인트 & 전략</h2>
+            <section className="bg-white p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ③ 차별화 포인트 & 전략
+              </h2>
               <ul className="space-y-1 text-gray-600 text-sm">
                 {rfp.differentiation.map((d, i) => (
                   <li key={i}>
@@ -576,22 +581,13 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-
-              <div className="mt-3">
-                <p className="text-xs text-gray-500 mb-1">경쟁사 대비 더 강조하고 싶은 차별점이 있나요?</p>
-                <textarea
-                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-700 bg-gray-50"
-                  rows={2}
-                  placeholder="예: 꼭 강조하고 싶은 차별 포인트, 불필요하다고 느끼는 포인트 등"
-                  value={noteDifferentiation}
-                  onChange={(e) => setNoteDifferentiation(e.target.value)}
-                />
-              </div>
             </section>
 
             {/* ④ 컨셉 & 레퍼런스 키워드 */}
-            <section className="bg-white text-gray-600 p-4 rounded-2xl shadow-sm space-y-2">
-              <h2 className="font-semibold text-gray-600 mb-1">④ 컨셉 & 레퍼런스 키워드</h2>
+            <section className="bg-white text-gray-600 p-4 rounded-2xl shadow-sm">
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ④ 컨셉 & 레퍼런스 키워드
+              </h2>
               <p className="text-sm text-gray-600 mb-2">
                 {rfp.concept_and_references.concept_summary}
               </p>
@@ -602,26 +598,17 @@ export default function Home() {
                   </span>
                 ))}
               </div>
-
-              <div className="mt-3">
-                <p className="text-xs text-gray-500 mb-1">컨셉이나 분위기에서 추가/수정하고 싶은 점이 있나요?</p>
-                <textarea
-                  className="w-full border rounded-lg px-2 py-1 text-xs text-gray-700 bg-gray-50"
-                  rows={2}
-                  placeholder="예: 더 차분하게/더 역동적으로, 컬러톤에 대한 의견 등"
-                  value={noteConcept}
-                  onChange={(e) => setNoteConcept(e.target.value)}
-                />
-              </div>
             </section>
 
             {/* ⑤ 디자인 및 사업화 프로세스(안) */}
             <section className="text-gray-600 md:col-span-2 space-y-3">
-              <h2 className="font-semibold text-gray-600">⑤ 디자인 및 사업화 프로세스(안)</h2>
+              <h2 className="font-semibold text-gray-600">
+                ⑤ 디자인 및 사업화 프로세스(안)
+              </h2>
               <p className="text-xs text-gray-500">
-                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로 흐르며 전체
-                여정을 한 번에 볼 수 있도록 정리했습니다. 카드들을 가로로 스크롤하면서 각 단계의
-                목표와 해야 할 일을 확인해 보세요.
+                Discover → Define → Develop → Deliver 순서로, 왼쪽에서 오른쪽으로
+                흐르며 전체 여정을 한 번에 볼 수 있도록 정리했습니다. 카드들을
+                가로로 스크롤하면서 각 단계의 목표와 해야 할 일을 확인해 보세요.
               </p>
 
               <div className="mt-2 -mx-4 px-4 md:mx-0 md:px-0">
@@ -660,67 +647,85 @@ export default function Home() {
 
             {/* ⑥ 나의 협력 파트너 추천 */}
             <section className="bg-white p-4 text-gray-600 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold text-gray-600 mb-2">⑥ 나의 협력 파트너 추천</h2>
+              <h2 className="font-semibold text-gray-600 mb-2">
+                ⑥ 나의 협력 파트너 추천
+              </h2>
               <ul className="flex flex-wrap gap-2">
                 {rfp.experts_to_meet?.map((e, i) => (
-                  <li key={i} className="border rounded-xl px-3 py-2 text-sm bg-white">
+                  <li
+                    key={i}
+                    className="border rounded-xl px-3 py-2 text-sm bg-white"
+                  >
                     <span className="font-medium">{e.role}</span>{" "}
                     <span className="text-gray-600">— {e.why}</span>
                   </li>
-                )) || <li className="text-sm text-gray-500">추천 전문가 정보가 없습니다.</li>}
+                )) || (
+                  <li className="text-sm text-gray-500">
+                    추천 전문가 정보가 없습니다.
+                  </li>
+                )}
               </ul>
             </section>
 
             {/* ⑦ 전문가 관점 리뷰 */}
             <section className="bg-white p-4 text-gray-600 rounded-2xl shadow-sm md:col-span-2">
-              <h2 className="font-semibold text-gray-600 mb-3">⑦ 전문가 관점 리뷰</h2>
+              <h2 className="font-semibold text-gray-600 mb-3">
+                ⑦ 전문가 관점 리뷰
+              </h2>
               <div className="grid md:grid-cols-2 gap-3 text-gray-600 text-sm">
                 {["pm", "designer", "engineer", "marketer"].map((k) => {
-                  const pack = (rfp.expert_reviews as any)?.[k] as ExpertPack | undefined;
+                  const pack = (rfp.expert_reviews as any)?.[k];
                   if (!pack) return null;
-
                   const label =
-                    k === "pm" ? "PM/기획" : k === "designer" ? "디자이너" : k === "engineer" ? "엔지니어" : "마케터";
-
-                  const quoteCandidate =
-                    pack.checklist?.[0] || pack.asks?.[0] || pack.risks?.[0] || "";
-                  const quote = quoteCandidate ? `“${quoteCandidate}”` : "";
-
+                    k === "pm"
+                      ? "PM/기획"
+                      : k === "designer"
+                      ? "디자이너"
+                      : k === "engineer"
+                      ? "엔지니어"
+                      : "마케터";
                   return (
                     <div key={k} className="rounded-2xl p-4 border space-y-2">
                       <h4 className="font-semibold">{label}</h4>
 
-                      {/* 말풍선 스타일 한 줄 요약 */}
-                      {quote && (
-                        <p className="text-xs bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-2">
-                          {quote}
+                      {pack.summary_line && (
+                        <p className="text-xs text-gray-500 italic">
+                          “{pack.summary_line}”
                         </p>
                       )}
 
-                      <p className="text-gray-700">
-                        <b>주의할 점</b>
-                      </p>
-                      <ul className="list-disc list-inside mb-2">
-                        {pack.risks?.map((x: string, i: number) => (
-                          <li key={i}>{x}</li>
-                        ))}
-                      </ul>
-                      <p className="text-gray-700">
-                        <b>지금 당장 할 일</b>
-                      </p>
-                      <ul className="list-disc list-inside mb-2">
-                        {pack.asks?.map((x: string, i: number) => (
-                          <li key={i}>{x}</li>
-                        ))}
-                      </ul>
-                      <p className="text-gray-700">
-                        <b>체크리스트</b>
-                      </p>
-                      <ul className="list-disc list-inside">
-                        {pack.checklist?.map((x: string, i: number) => (
-                          <li key={i}>{x}</li>
-                        ))}
-                      </ul>
+                      <div>
+                        <p className="text-gray-700 font-medium text-xs">
+                          주의할 점
+                        </p>
+                        <ul className="list-disc list-inside mb-2">
+                          {pack.risks?.map((x: string, i: number) => (
+                            <li key={i}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div>
+                        <p className="text-gray-700 font-medium text-xs">
+                          지금 당장 할 일
+                        </p>
+                        <ul className="list-disc list-inside mb-2">
+                          {pack.asks?.map((x: string, i: number) => (
+                            <li key={i}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div>
+                        <p className="text-gray-700 font-medium text-xs">
+                          체크리스트
+                        </p>
+                        <ul className="list-disc list-inside">
+                          {pack.checklist?.map((x: string, i: number) => (
+                            <li key={i}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
                   );
                 })}
@@ -744,22 +749,89 @@ export default function Home() {
                   <strong>타겟 사용자:</strong> {rfp.visual_rfp.target_users}
                 </p>
                 <p>
-                  <strong>핵심 요구사항:</strong> {rfp.visual_rfp.core_requirements.join(", ")}
+                  <strong>핵심 요구사항:</strong>{" "}
+                  {rfp.visual_rfp.core_requirements.join(", ")}
                 </p>
                 <p>
                   <strong>디자인 방향:</strong> {rfp.visual_rfp.design_direction}
                 </p>
                 <p>
-                  <strong>납품물:</strong> {rfp.visual_rfp.deliverables.join(", ")}
+                  <strong>납품물:</strong>{" "}
+                  {rfp.visual_rfp.deliverables.join(", ")}
                 </p>
               </div>
             </section>
 
-                        {/* ⑨ AI 생성 제품 디자인 시안 */}
+            {/* ⑨ 비주얼 방향 탐색 (컨셉 이미지) */}
+            <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-semibold text-gray-600">
+                  ⑨ 비주얼 방향 탐색 (컨셉 이미지)
+                </h2>
+                <button
+                  type="button"
+                  onClick={handleGenerateConceptImages}
+                  disabled={conceptLoading}
+                  className="px-3 py-1 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
+                >
+                  {conceptLoading
+                    ? "컨셉 이미지 생성 중..."
+                    : "컨셉 이미지 생성하기"}
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-2">
+                컨셉 요약과 키워드를 기반으로 Stable Diffusion이 생성한
+                비주얼 레퍼런스입니다. 마음에 드는 분위기를 선택하면, 이후
+                디자인 방향을 잡는 데 참고할 수 있습니다.
+              </p>
+
+              {conceptError && (
+                <p className="text-red-500 text-sm mt-1">{conceptError}</p>
+              )}
+
+              {!!conceptImages.length && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {conceptImages.map((url, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() =>
+                        setSelectedConceptIndex((prev) =>
+                          prev === idx ? null : idx
+                        )
+                      }
+                      className={`relative rounded-xl overflow-hidden border bg-white focus:outline-none ${
+                        selectedConceptIndex === idx
+                          ? "ring-2 ring-blue-500 border-blue-500"
+                          : "border-gray-200"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={`concept-${idx}`}
+                        className="w-full h-28 object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedConceptIndex !== null && (
+                <p className="mt-2 text-xs text-blue-600">
+                  선택된 컨셉 이미지 #{selectedConceptIndex + 1}를 기준으로
+                  비주얼 방향을 잡을 수 있습니다. (향후 DALL·E 프롬프트에
+                  반영 예정)
+                </p>
+              )}
+            </section>
+
+            {/* ⑩ AI 생성 제품 디자인 시안 (DALL·E) */}
             {(designError || designLoading || designImages.length > 0) && (
               <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
                 <h2 className="font-semibold text-gray-600 mb-2">
-                  ⑨ AI 생성 제품 디자인 시안
+                  ⑩ AI 생성 제품 디자인 시안 (3D 렌더)
                 </h2>
 
                 {designError && (
@@ -772,35 +844,32 @@ export default function Home() {
                   </p>
                 )}
 
-              {!!designImages.length && (
-  <div className="mt-4 grid grid-cols-3 gap-3">
-    {designImages.map((url, i) => (
-      <div
-        key={i}
-        className="rounded-xl overflow-hidden border bg-white flex flex-col"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={url}
-          alt={`design-${i}`}
-          className="w-full h-40 object-cover" // 높이를 줄여서 더 작게
-        />
-
-        <a
-          href={url}
-          download={`aidee-design-${i + 1}.png`}
-          className="text-[11px] text-blue-600 underline px-2 py-1 self-end"
-        >
-          이미지 다운로드
-        </a>
-      </div>
-    ))}
-  </div>
-)}
-
+                {!!designImages.length && (
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {designImages.map((url, i) => (
+                      <div
+                        key={i}
+                        className="rounded-xl overflow-hidden border bg-white flex flex-col"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={url}
+                          alt={`design-${i}`}
+                          className="w-full h-40 object-cover"
+                        />
+                        <a
+                          href={url}
+                          download={`aidee-design-${i + 1}.png`}
+                          className="text-[11px] text-blue-600 underline px-2 py-1 self-end"
+                        >
+                          이미지 다운로드
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
             )}
-
           </div>
         )}
       </div>
