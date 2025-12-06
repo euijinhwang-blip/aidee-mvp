@@ -106,7 +106,7 @@ export default function Home() {
 
   const [rfp, setRfp] = useState<RFP | null>(null);
   const [loading, setLoading] = useState(false);
-  const [refining, setRefining] = useState(false); // 🔥 RFP 다시 정리하기
+  const [refining, setRefining] = useState(false);
   const [error, setError] = useState<any>(null);
   const [emailMsg, setEmailMsg] = useState("");
 
@@ -210,7 +210,6 @@ export default function Home() {
       const res = await fetch("/api/aidee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // 🔥 설문을 처음 생성부터 같이 보냄
         body: JSON.stringify({ idea, survey }),
       });
 
@@ -279,8 +278,8 @@ export default function Home() {
         body: JSON.stringify({
           idea,
           survey,
-          user_notes: userNotes, // 서버 systemPrompt에서 강하게 반영
-          prev_rfp: rfp, // 이전 버전 참고용(선택)
+          user_notes: userNotes,
+          prev_rfp: rfp,
           mode: "refine",
         }),
       });
@@ -959,6 +958,23 @@ export default function Home() {
                   {rfp.visual_rfp.deliverables.join(", ")}
                 </p>
               </div>
+
+              {/* 🔥 RFP 요약 아래에 디자인 시안 생성 버튼 추가 */}
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleGenerateDesign}
+                  disabled={designLoading}
+                  className="px-4 py-2 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
+                >
+                  {designLoading
+                    ? "디자인 시안 생성 중..."
+                    : "3D 렌더 이미지 생성"}
+                </button>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  위 RFP 요약 내용을 바탕으로 제품 3D 렌더 이미지를 생성합니다.
+                </p>
+              </div>
             </section>
 
             {/* ⑨ 비주얼 방향 탐색 (컨셉 이미지) */}
@@ -1034,15 +1050,15 @@ export default function Home() {
                   <h2 className="font-semibold text-gray-600">
                     ⑩ AI 생성 제품 디자인 시안 (3D 렌더)
                   </h2>
-                  {/* 🔥 여기로 버튼 위치 이동 */}
+                  {/* 섹션 안에서도 바로 다시 생성 가능 */}
                   <button
                     onClick={handleGenerateDesign}
-                    disabled={!rfp || designLoading}
+                    disabled={designLoading}
                     className="px-3 py-1 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
                   >
                     {designLoading
                       ? "디자인 시안 생성 중..."
-                      : "3D 렌더 이미지 생성"}
+                      : "3D 렌더 이미지 다시 생성"}
                   </button>
                 </div>
 
@@ -1063,7 +1079,7 @@ export default function Home() {
                         key={i}
                         className="rounded-xl overflow-hidden border bg-white flex flex-col"
                       >
-                        {/* 🔥 정사각형 포맷 + 세로 영역 확장: aspect-square */}
+                        {/* 정사각형 포맷 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
