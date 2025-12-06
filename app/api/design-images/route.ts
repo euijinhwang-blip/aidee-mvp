@@ -72,11 +72,11 @@ function buildDesignPrompt(idea: string, rfp: any): string {
 // ─────────────────────────────────────────────
 // DALL·E (브랜딩 / Key visual)
 // ─────────────────────────────────────────────
+// ✅ 교체해서 그대로 쓰면 되는 DALL·E 함수
 async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.error("[DALL·E] Missing OPENAI_API_KEY");
-    throw new Error("브랜딩용 이미지 엔진 설정이 아직 완료되지 않았습니다.");
+    throw new Error("OPENAI_API_KEY 환경변수가 없습니다.");
   }
 
   const res = await fetch("https://api.openai.com/v1/images/generations", {
@@ -90,8 +90,7 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
       prompt,
       n,
       size: "1024x1024",
-      // 일부 환경에서 response_format 지원이 안 될 수 있어서 제거해도 됨
-      response_format: "b64_json",
+      // ❌ response_format 제거
     }),
   });
 
@@ -101,25 +100,30 @@ async function generateWithDalle(prompt: string, n: number): Promise<string[]> {
     throw new Error(
       json?.error?.message ||
         json?.error ||
-        "브랜딩용 이미지를 생성하는 중 문제가 발생했습니다."
+        `DALL·E 생성 실패 (status ${res.status})`
     );
   }
 
   const images: string[] = [];
   if (Array.isArray(json.data)) {
     for (const d of json.data) {
-      if (d?.b64_json) {
+      if (typeof d?.url === "string") {
+        // 기본은 이미지 URL 형식
+        images.push(d.url);
+      } else if (d?.b64_json) {
+        // 혹시나 b64_json이 올 때도 대비
         images.push(`data:image/png;base64,${d.b64_json}`);
       }
     }
   }
 
   if (!images.length) {
-    throw new Error("브랜딩용 이미지 데이터를 받지 못했습니다.");
+    throw new Error("DALL·E에서 이미지 데이터를 받지 못했습니다.");
   }
 
   return images;
 }
+
 
 // ─────────────────────────────────────────────
 // Stable Diffusion (컨셉 스케치 / 일러스트)
