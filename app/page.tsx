@@ -301,9 +301,6 @@ export default function Home() {
 
       const newRfp = data as RFP;
       setRfp(newRfp);
-
-      // 다시 생성된 뒤에도 기존 컨셉/디자인 시안은 유지하고,
-      // 필요하면 사용자가 다시 생성 버튼을 눌러 새 버전을 만들도록 둠.
     } catch (e: any) {
       console.error("RFP refine error:", e);
       const msg =
@@ -394,7 +391,6 @@ export default function Home() {
           provider: "dalle",
           conceptPrompt: conceptPrompt ?? undefined,
           userNotesText: userNotesText || undefined,
-          // 🔥 선택된 컨셉 이미지 URL도 프롬프트 보조 정보로 전달
           selectedConceptImages:
             selectedConceptImages.length > 0 ? selectedConceptImages : undefined,
         }),
@@ -621,14 +617,6 @@ export default function Home() {
             className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
           >
             이메일로 받기
-          </button>
-
-          <button
-            onClick={handleGenerateDesign}
-            disabled={!rfp || designLoading}
-            className="px-6 text-gray-600 py-3 rounded-lg border bg-white disabled:opacity-50"
-          >
-            {designLoading ? "디자인 시안 생성 중..." : "3D 렌더 이미지 생성"}
           </button>
 
           {loading && (
@@ -1013,7 +1001,7 @@ export default function Home() {
                           selected ? "ring-2 ring-gray-900 border-gray-900" : "border-gray-200"
                         }`}
                       >
-                        {/* 세로 영역 ↑: h-40 으로 늘림 */}
+                        {/* 컨셉 이미지는 세로 살짝 넉넉하게 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
@@ -1042,9 +1030,21 @@ export default function Home() {
             {/* ⑩ AI 생성 제품 디자인 시안 (DALL·E) */}
             {(designError || designLoading || designImages.length > 0) && (
               <section className="bg-white p-4 rounded-2xl text-gray-600 shadow-sm md:col-span-2">
-                <h2 className="font-semibold text-gray-600 mb-2">
-                  ⑩ AI 생성 제품 디자인 시안 (3D 렌더)
-                </h2>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-semibold text-gray-600">
+                    ⑩ AI 생성 제품 디자인 시안 (3D 렌더)
+                  </h2>
+                  {/* 🔥 여기로 버튼 위치 이동 */}
+                  <button
+                    onClick={handleGenerateDesign}
+                    disabled={!rfp || designLoading}
+                    className="px-3 py-1 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
+                  >
+                    {designLoading
+                      ? "디자인 시안 생성 중..."
+                      : "3D 렌더 이미지 생성"}
+                  </button>
+                </div>
 
                 {designError && (
                   <p className="text-red-500 text-sm mt-2">{designError}</p>
@@ -1063,12 +1063,12 @@ export default function Home() {
                         key={i}
                         className="rounded-xl overflow-hidden border bg-white flex flex-col"
                       >
-                        {/* 세로 영역 ↑: h-56 으로 늘림 */}
+                        {/* 🔥 정사각형 포맷 + 세로 영역 확장: aspect-square */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
                           alt={`design-${i}`}
-                          className="w-full h-56 object-cover"
+                          className="w-full aspect-square object-cover"
                         />
                         <a
                           href={url}
