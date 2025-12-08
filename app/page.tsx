@@ -708,7 +708,7 @@ export default function Home() {
             disabled={!rfp}
             className="px-4 py-3 text-sm rounded-lg border bg-white text-gray-600 disabled:opacity-50"
           >
-            RFP & 이미지 ZIP 다운로드
+            RFP & 이미지 다운로드
           </button>
 
           {loading && (
@@ -748,7 +748,7 @@ export default function Home() {
               {/* 사용자 메모 입력 */}
               <div className="mt-3">
                 <label className="text-xs text-gray-500 block mb-1">
-                  추가하고 싶은 점이 있나요?
+                  당신이 생각하는 특정한 타겟이 있나요? 그들은 어떠한 환경에 놓여있나요?  
                 </label>
                 <textarea
                   rows={3}
@@ -780,7 +780,7 @@ export default function Home() {
 
               <div className="mt-3">
                 <label className="text-xs text-gray-500 block mb-1">
-                  추가하고 싶은 기능/제안이 있나요?
+                  타겟이 제품을 통해 무엇을 하고싶을까요? 
                 </label>
                 <textarea
                   rows={3}
@@ -812,7 +812,7 @@ export default function Home() {
 
               <div className="mt-3">
                 <label className="text-xs text-gray-500 block mb-1">
-                  우리만의 차별점에 대해 더 하고 싶은 말이 있나요?
+                  제품의 마케팅 전략은 생각해보셨나요?
                 </label>
                 <textarea
                   rows={3}
@@ -847,7 +847,7 @@ export default function Home() {
 
               <div className="mt-3">
                 <label className="text-xs text-gray-500 block mb-1">
-                  비주얼/컨셉에 대해 더 남기고 싶은 메모가 있나요?
+                  어떠한 핵심키워드가 제품을 요약해줄 수 있을까요?
                 </label>
                 <textarea
                   rows={3}
