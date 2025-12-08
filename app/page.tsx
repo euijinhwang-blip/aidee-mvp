@@ -1,7 +1,54 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+
+// 프로젝트 상태 타입 (나중에 프로젝트 저장/불러오기 확장용)
+type SavedProjectState = {
+  idea: string;
+  survey: any;
+  userNotes: any;
+  rfp: any;
+  conceptImages: string[];
+  selectedConceptIndexes: number[];
+};
+
+// ====== 🔥 프로젝트 ID 저장 훅 (URL ?id=proj-xxxx 구조용) ======
+function useProjectId() {
+  const [projectId, setProjectId] = useState<string | null>(null);
+
+  // URL에서 id 추출
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("id");
+    if (id) setProjectId(id);
+  }, []);
+
+  // 저장 호출
+  const saveProjectState = async (state: SavedProjectState) => {
+    if (!projectId) return;
+
+    await fetch(`/api/projects/${projectId}/state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
+  };
+
+  // 불러오기 호출
+  const loadProjectState = async (): Promise<SavedProjectState | null> => {
+    if (!projectId) return null;
+
+    const res = await fetch(`/api/projects/${projectId}/state`);
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    return json?.state ?? null;
+  };
+
+  return { projectId, saveProjectState, loadProjectState };
+}
 
 type Phase = {
   goals: string[];
@@ -39,6 +86,7 @@ type RFP = {
   };
 };
 
+// 🔽 카드 컴포넌트
 function PhaseCard({
   title,
   caption,
@@ -93,9 +141,83 @@ function PhaseCard({
   );
 }
 
+// ====== 📦 RFP + 이미지 ZIP 다운로드 유틸 ======
+async function downloadRfpZip(rfp: RFP, designImages: string[], conceptImages: string[]) {
+  const zip = new JSZip();
+
+  // 1) 전체 RFP JSON 저장
+  zip.file("rfp.json", JSON.stringify(rfp, null, 2));
+
+  // 2) 요약 텍스트 저장
+  const summaryText = `
+[프로젝트명]
+${rfp.visual_rfp?.project_title ?? ""}
+
+[배경]
+${rfp.visual_rfp?.background ?? ""}
+
+[목표]
+${rfp.visual_rfp?.objective ?? ""}
+
+[타겟 사용자]
+${rfp.visual_rfp?.target_users ?? ""}
+
+[핵심 요구사항]
+${(rfp.visual_rfp?.core_requirements ?? []).join(", ")}
+
+[디자인 방향]
+${rfp.visual_rfp?.design_direction ?? ""}
+
+[납품물]
+${(rfp.visual_rfp?.deliverables ?? []).join(", ")}
+  `.trim();
+
+  zip.file("rfp_summary.txt", summaryText);
+
+  // 3) 이미지 폴더
+  const designFolder = zip.folder("design_images");
+  const conceptFolder = zip.folder("concept_images");
+
+  async function fetchImageAsBlob(url: string) {
+    const res = await fetch(url);
+    return await res.blob();
+  }
+
+  // 3D 렌더 이미지
+  for (let i = 0; i < designImages.length; i++) {
+    try {
+      const blob = await fetchImageAsBlob(designImages[i]);
+      designFolder?.file(`design_${i + 1}.png`, blob);
+    } catch (e) {
+      console.error("design image fetch error:", e);
+    }
+  }
+
+  // 컨셉 이미지
+  for (let i = 0; i < conceptImages.length; i++) {
+    try {
+      const blob = await fetchImageAsBlob(conceptImages[i]);
+      conceptFolder?.file(`concept_${i + 1}.png`, blob);
+    } catch (e) {
+      console.error("concept image fetch error:", e);
+    }
+  }
+
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  const filename =
+    `aidee_rfp_${(rfp.visual_rfp?.project_title || "project")
+      .replace(/\s+/g, "_")
+      .slice(0, 40)}.zip`;
+
+  saveAs(zipBlob, filename);
+}
+
 export default function Home() {
+  // 프로젝트 ID 훅 (지금은 내부 저장용으로만 호출)
+  useProjectId();
+
   const [idea, setIdea] = useState("");
-  const [emailTo, setEmailTo] = useState("");
+  // 이메일 관련 상태는 제거
 
   // 설문 값들
   const [budget, setBudget] = useState("");
@@ -109,7 +231,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [refining, setRefining] = useState(false);
   const [error, setError] = useState<any>(null);
-  const [emailMsg, setEmailMsg] = useState("");
 
   // 진행 시간(초)
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -124,9 +245,7 @@ export default function Home() {
   const [conceptImages, setConceptImages] = useState<string[]>([]);
   const [conceptLoading, setConceptLoading] = useState(false);
   const [conceptError, setConceptError] = useState<string | null>(null);
-  const [selectedConceptIndexes, setSelectedConceptIndexes] = useState<number[]>(
-    []
-  );
+  const [selectedConceptIndexes, setSelectedConceptIndexes] = useState<number[]>([]);
 
   // 컨셉 이미지 생성에 사용된 프롬프트 (최종 디자인 프롬프트에 반영)
   const [conceptPrompt, setConceptPrompt] = useState<string | null>(null);
@@ -198,7 +317,6 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setRfp(null);
-    setEmailMsg("");
 
     // 디자인/컨셉 시안 & 메모 초기화
     setDesignImages([]);
@@ -236,9 +354,7 @@ export default function Home() {
       try {
         data = text ? JSON.parse(text) : null;
       } catch {
-        throw new Error(
-          "서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120)
-        );
+        throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120));
       }
 
       if (!res.ok) {
@@ -268,9 +384,7 @@ export default function Home() {
     } catch (e: any) {
       console.error("RFP generate error:", e);
       const msg =
-        typeof e === "string"
-          ? e
-          : e?.message || e?.error || e?.detail || "네트워크 오류";
+        typeof e === "string" ? e : e?.message || e?.error || e?.detail || "네트워크 오류";
       setError(msg);
     } finally {
       setLoading(false);
@@ -307,9 +421,7 @@ export default function Home() {
       try {
         data = text ? JSON.parse(text) : null;
       } catch {
-        throw new Error(
-          "서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120)
-        );
+        throw new Error("서버 응답이 JSON 형식이 아닙니다: " + text.slice(0, 120));
       }
 
       if (!res.ok) {
@@ -330,44 +442,6 @@ export default function Home() {
     }
   }
 
-  // 이메일 보내기 (/api/email 사용)
-  async function handleEmail() {
-    if (!rfp || !emailTo) return;
-    setEmailMsg("");
-
-    try {
-      const res = await fetch("/api/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: emailTo,
-          subject: "Aidee · 비주얼 RFP & 프로세스(안)",
-          rfp,
-          images: designImages.map((url, i) => ({
-            full: url,
-            alt: `design ${i + 1}`,
-          })),
-        }),
-      });
-
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error || "이메일 전송 실패");
-      setEmailMsg("이메일을 보냈습니다.");
-
-      // ✅ 이메일 메트릭 기록
-      await fetch("/api/metrics/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: emailTo,
-          meta: { rfpId: rfp.id },
-        }),
-      });
-    } catch (e: any) {
-      setEmailMsg(e?.message || "이메일 전송 중 오류가 발생했습니다.");
-    }
-  }
-
   // 최종 제품 디자인 이미지 (DALL·E)
   async function handleGenerateDesign() {
     if (!idea || !rfp) {
@@ -381,10 +455,8 @@ export default function Home() {
 
     try {
       const userNotesText = [
-        userNotes.target_problem &&
-          `Problem/goal notes: ${userNotes.target_problem}`,
-        userNotes.key_features &&
-          `Feature notes: ${userNotes.key_features}`,
+        userNotes.target_problem && `Problem/goal notes: ${userNotes.target_problem}`,
+        userNotes.key_features && `Feature notes: ${userNotes.key_features}`,
         userNotes.differentiation &&
           `Differentiation notes: ${userNotes.differentiation}`,
         userNotes.concept && `Visual concept notes: ${userNotes.concept}`,
@@ -392,14 +464,12 @@ export default function Home() {
         .filter(Boolean)
         .join(" ");
 
-      const selectedConceptImages =
+      const selectedConceptImagesArr =
         conceptImages.length && selectedConceptIndexes.length
-          ? selectedConceptIndexes
-              .map((i) => conceptImages[i])
-              .filter(Boolean)
+          ? selectedConceptIndexes.map((i) => conceptImages[i]).filter(Boolean)
           : [];
 
-      // 🔹 여기서부터 rfpLite로 축약해서 전송
+      // rfpLite로 축약해서 전송
       const rfpLite = rfp
         ? {
             id: rfp.id,
@@ -414,16 +484,14 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idea,
-          rfp: rfpLite, // ← Lite만 전송
+          rfp: rfpLite,
           provider: "dalle",
           conceptPrompt: conceptPrompt ?? undefined,
           userNotesText: userNotesText || undefined,
           selectedConceptImages:
-            selectedConceptImages.length > 0 ? selectedConceptImages : undefined,
+            selectedConceptImagesArr.length > 0 ? selectedConceptImagesArr : undefined,
           visualCategories:
-            selectedVisualCategories.length > 0
-              ? selectedVisualCategories
-              : undefined,
+            selectedVisualCategories.length > 0 ? selectedVisualCategories : undefined,
         }),
       });
 
@@ -465,9 +533,7 @@ export default function Home() {
     setConceptPrompt(null);
 
     try {
-      const conceptNotes = userNotes.concept
-        ? `Concept notes: ${userNotes.concept}`
-        : "";
+      const conceptNotes = userNotes.concept ? `Concept notes: ${userNotes.concept}` : "";
 
       const res = await fetch("/api/concept-images", {
         method: "POST",
@@ -476,15 +542,12 @@ export default function Home() {
           rfp,
           userNotesText: conceptNotes || undefined,
           visualCategories:
-            selectedVisualCategories.length > 0
-              ? selectedVisualCategories
-              : undefined,
+            selectedVisualCategories.length > 0 ? selectedVisualCategories : undefined,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok)
-        throw new Error(data?.error || "컨셉 이미지 생성에 실패했습니다.");
+      if (!res.ok) throw new Error(data?.error || "컨셉 이미지 생성에 실패했습니다.");
 
       const images: string[] = data.images || [];
       setConceptImages(images);
@@ -501,9 +564,7 @@ export default function Home() {
       });
     } catch (e: any) {
       console.error("concept image error:", e);
-      setConceptError(
-        e?.message || "컨셉 이미지 생성 중 오류가 발생했습니다."
-      );
+      setConceptError(e?.message || "컨셉 이미지 생성 중 오류가 발생했습니다.");
     } finally {
       setConceptLoading(false);
     }
@@ -642,19 +703,12 @@ export default function Home() {
             {loading ? "분석 및 RFP 생성 중..." : "RFP 생성하기"}
           </button>
 
-          <input
-            type="email"
-            placeholder="이메일 주소"
-            className="border text-gray-300 rounded-lg px-3 py-2 bg-white"
-            value={emailTo}
-            onChange={(e) => setEmailTo(e.target.value)}
-          />
           <button
-            onClick={handleEmail}
-            disabled={!rfp || !emailTo}
-            className="px-4 text-gray-600 py-2 rounded-lg border bg-white disabled:opacity-50"
+            onClick={() => rfp && downloadRfpZip(rfp, designImages, conceptImages)}
+            disabled={!rfp}
+            className="px-4 py-3 text-sm rounded-lg border bg-white text-gray-600 disabled:opacity-50"
           >
-            이메일로 받기
+            RFP & 이미지 ZIP 다운로드
           </button>
 
           {loading && (
@@ -663,16 +717,10 @@ export default function Home() {
               초 경과
             </span>
           )}
-
-          {emailMsg && (
-            <span className="text-sm text-gray-600">{emailMsg}</span>
-          )}
         </div>
 
         {/* 에러/로딩 */}
-        {designError && (
-          <p className="text-red-500 text-sm mt-2">{designError}</p>
-        )}
+        {designError && <p className="text-red-500 text-sm mt-2">{designError}</p>}
         {designLoading && (
           <p className="text-sm text-gray-500 mt-2">디자인 시안 생성 중...</p>
         )}
@@ -1095,9 +1143,7 @@ export default function Home() {
                   disabled={designLoading}
                   className="px-4 py-2 text-xs rounded-lg border bg-white text-gray-600 disabled:opacity-50"
                 >
-                  {designLoading
-                    ? "디자인 시안 생성 중..."
-                    : "3D 렌더 이미지 생성"}
+                  {designLoading ? "디자인 시안 생성 중..." : "3D 렌더 이미지 생성"}
                 </button>
                 <p className="mt-1 text-[11px] text-gray-500">
                   위 RFP 요약 내용과 선택한 비주얼 방향을 바탕으로 제품 3D 렌더 이미지를

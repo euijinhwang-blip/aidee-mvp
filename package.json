@@ -11,6 +11,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.81.1",
     "@vercel/analytics": "^1.5.0",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
     "next": "^16.0.7",
     "openai": "^4.104.0",
     "react": "19.2.0",
